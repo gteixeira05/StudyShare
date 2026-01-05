@@ -13,11 +13,12 @@ import authRoutes from './routes/auth.routes.js';
 import materialRoutes from './routes/material.routes.js';
 import userRoutes from './routes/user.routes.js';
 
-// Load environment variables
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load environment variables
+// Carregar .env da raiz do projeto (um nível acima de backend/)
+dotenv.config({ path: path.join(path.dirname(__dirname), '.env') });
 
 const app = express();
 const httpServer = createServer(app);

@@ -53,10 +53,6 @@ build/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-# Uploads (qualquer pasta uploads em qualquer lugar)
-**/uploads/
-uploads/
-
 # MongoDB
 data/
 *.db
