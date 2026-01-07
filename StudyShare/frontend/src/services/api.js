@@ -25,14 +25,26 @@ api.interceptors.request.use(
   }
 )
 
-// Interceptor para lidar com erros de autenticação
+// Interceptor para lidar com erros de autenticação e conexão
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Erro de autenticação
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       window.location.href = '/login'
+      return Promise.reject(error)
     }
+    
+    // Erro de conexão (servidor não disponível)
+    if (!error.response) {
+      // ECONNREFUSED ou timeout - servidor pode estar a reiniciar
+      if (error.code === 'ECONNREFUSED' || error.message?.includes('Network Error')) {
+        console.warn('⚠️ Servidor não disponível. Pode estar a reiniciar...')
+        // Não mostrar erro ao utilizador, apenas log
+      }
+    }
+    
     return Promise.reject(error)
   }
 )

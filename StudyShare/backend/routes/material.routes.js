@@ -7,7 +7,7 @@ import multer from 'multer';
 import Material from '../models/Material.model.js';
 import User from '../models/User.model.js';
 import { authMiddleware, optionalAuth } from '../middleware/auth.middleware.js';
-import { notifyNewComment, notifyNewRating, emitNewComment } from '../utils/notifications.js';
+import { notifyNewComment, notifyNewRating, emitNewComment, emitRatingUpdate } from '../utils/notifications.js';
 import { updateMaterialAuthorReputation, recalculateUserReputation } from '../utils/reputation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -971,6 +971,13 @@ router.post('/:id/rating', [
     // Atualizar reputação do autor do material
     updateMaterialAuthorReputation(req.params.id).catch(err => {
       console.error('Erro ao atualizar reputação:', err);
+    });
+
+    // Emitir evento Socket.IO para atualização em tempo real
+    emitRatingUpdate(req.params.id, {
+      average: material.rating.average,
+      count: material.rating.count,
+      breakdown: material.rating.breakdown
     });
 
     // Enviar notificação sobre a nova avaliação (apenas se for uma nova avaliação, não atualização)

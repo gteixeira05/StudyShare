@@ -18,6 +18,15 @@ export function emitNewComment(materialId, comment) {
 }
 
 /**
+ * Emitir evento de atualização de avaliação em tempo real
+ */
+export function emitRatingUpdate(materialId, ratingData) {
+  if (io) {
+    io.to(`material_${materialId}`).emit('rating_updated', ratingData);
+  }
+}
+
+/**
  * Enviar notificação e emitir via Socket.IO
  */
 export async function sendNotification(notificationData) {

@@ -128,12 +128,31 @@ const MaterialDetailsPage = () => {
       })
     }
 
+    // Escutar atualizações de avaliação
+    const handleRatingUpdate = (ratingData) => {
+      setMaterial(prevMaterial => {
+        if (!prevMaterial) return prevMaterial
+        
+        return {
+          ...prevMaterial,
+          rating: {
+            ...prevMaterial.rating,
+            average: ratingData.average,
+            count: ratingData.count,
+            breakdown: ratingData.breakdown
+          }
+        }
+      })
+    }
+
     socket.on('new_comment', handleNewComment)
+    socket.on('rating_updated', handleRatingUpdate)
 
     // Limpar quando sair da página
     return () => {
       socket.emit('leave_material_room', id)
       socket.off('new_comment', handleNewComment)
+      socket.off('rating_updated', handleRatingUpdate)
     }
   }, [socket, id])
 
@@ -229,7 +248,7 @@ const MaterialDetailsPage = () => {
         let downloadUrl = fileUrl
         if (!isExternal && !fileUrl.startsWith('http')) {
           // URL local - usar URL completa do backend
-          const backendUrl = 'http://localhost:5001'
+          const backendUrl = 'http://localhost:5000'
           downloadUrl = fileUrl.startsWith('/') 
             ? `${backendUrl}${fileUrl}` 
             : `${backendUrl}/${fileUrl}`
