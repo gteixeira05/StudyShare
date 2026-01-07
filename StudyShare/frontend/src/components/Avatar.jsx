@@ -16,7 +16,7 @@ const Avatar = ({ user, size = 'md', className = '' }) => {
     if (avatar.startsWith('http')) {
       return avatar
     }
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001'
     return `${backendUrl}${avatar}`
   }
 

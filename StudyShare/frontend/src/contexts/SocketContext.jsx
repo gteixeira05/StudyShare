@@ -21,7 +21,7 @@ export const SocketProvider = ({ children }) => {
   useEffect(() => {
     if (isAuthenticated && user?._id) {
       // Conectar ao Socket.IO
-      const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5000', {
+      const newSocket = io(import.meta.env.VITE_API_URL || 'http://localhost:5001', {
         transports: ['websocket', 'polling'],
         reconnection: true,
         reconnectionDelay: 1000,

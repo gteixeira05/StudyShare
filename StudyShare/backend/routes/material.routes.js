@@ -616,7 +616,7 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
           return;
         }
         // Se falhar por outro motivo, retornar JSON com URL completa do backend
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+        const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
         res.status(200).json({
           message: 'Download registado',
           fileUrl: material.fileUrl.startsWith('http') 

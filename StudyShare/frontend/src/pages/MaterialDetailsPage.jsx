@@ -229,7 +229,7 @@ const MaterialDetailsPage = () => {
         let downloadUrl = fileUrl
         if (!isExternal && !fileUrl.startsWith('http')) {
           // URL local - usar URL completa do backend
-          const backendUrl = 'http://localhost:5000'
+          const backendUrl = 'http://localhost:5001'
           downloadUrl = fileUrl.startsWith('/') 
             ? `${backendUrl}${fileUrl}` 
             : `${backendUrl}/${fileUrl}`

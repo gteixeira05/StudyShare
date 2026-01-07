@@ -8,7 +8,7 @@ export default defineConfig({
     host: true, // Permite acesso de outros dispositivos na rede
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5001',
         changeOrigin: true
       }
     }
