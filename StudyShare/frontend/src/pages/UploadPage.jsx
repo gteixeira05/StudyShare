@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../services/api'
 import Sidebar from '../components/Sidebar'
@@ -8,6 +8,9 @@ const UploadPage = () => {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [availableYears, setAvailableYears] = useState([])
+  const [materialTypes, setMaterialTypes] = useState([])
+  const [loadingConfigs, setLoadingConfigs] = useState(true)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -17,6 +20,39 @@ const UploadPage = () => {
     materialType: '',
     file: null
   })
+
+  useEffect(() => {
+    const fetchConfigs = async () => {
+      try {
+        const [yearsRes, typesRes] = await Promise.all([
+          api.get('/config/availableYears'),
+          api.get('/config/materialTypes')
+        ])
+        setAvailableYears(yearsRes.data.values || [])
+        setMaterialTypes(typesRes.data.values || [])
+      } catch (error) {
+        console.error('Erro ao buscar configurações:', error)
+        // Fallback para valores padrão
+        setAvailableYears([
+          { value: 1, label: '1º Ano' },
+          { value: 2, label: '2º Ano' },
+          { value: 3, label: '3º Ano' },
+          { value: 4, label: '4º Ano' },
+          { value: 5, label: '5º Ano' }
+        ])
+        setMaterialTypes([
+          { value: 'Apontamento', label: 'Apontamento' },
+          { value: 'Resumo', label: 'Resumo' },
+          { value: 'Exercícios', label: 'Exercícios' },
+          { value: 'Exame', label: 'Exame' },
+          { value: 'Slides', label: 'Slides' }
+        ])
+      } finally {
+        setLoadingConfigs(false)
+      }
+    }
+    fetchConfigs()
+  }, [])
 
   const handleChange = (e) => {
     if (e.target.name === 'file') {
@@ -146,11 +182,15 @@ const UploadPage = () => {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Selecionar...</option>
-                  <option value="1">1º Ano</option>
-                  <option value="2">2º Ano</option>
-                  <option value="3">3º Ano</option>
-                  <option value="4">4º Ano</option>
-                  <option value="5">5º Ano</option>
+                  {loadingConfigs ? (
+                    <option value="">A carregar...</option>
+                  ) : (
+                    availableYears.map((year) => (
+                      <option key={year.value} value={year.value}>
+                        {year.label}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             </div>
@@ -181,11 +221,15 @@ const UploadPage = () => {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Selecionar...</option>
-                  <option value="Apontamento">Apontamento</option>
-                  <option value="Resumo">Resumo</option>
-                  <option value="Exercícios">Exercícios</option>
-                  <option value="Exame">Exame</option>
-                  <option value="Slides">Slides</option>
+                  {loadingConfigs ? (
+                    <option value="">A carregar...</option>
+                  ) : (
+                    materialTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             </div>
@@ -235,7 +279,7 @@ const UploadPage = () => {
                         Clica para selecionar ou arrasta o ficheiro aqui
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        PDF, DOCX, PPTX, JPG (Máx 25MB)
+                        PDF, DOC, DOCX, PPT, PPTX, JPG, JPEG, PNG (Máx 25MB)
                       </p>
                     </div>
                   )}

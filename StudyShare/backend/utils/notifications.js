@@ -62,22 +62,7 @@ export async function notifyNewComment(materialId, commentAuthorId, commentText)
     // Encontrar todos os users que têm este material nos favoritos
     const usersWithFavorite = await User.find({
       favorites: materialId
-    }).select('_id');
-
-    // Lista de users para notificar (dono + favoritos)
-    const usersToNotify = new Set();
-    
-    // Adicionar dono do material (se não for o próprio autor do comentário)
-    if (material.author._id.toString() !== commentAuthorId.toString()) {
-      usersToNotify.add(material.author._id.toString());
-    }
-
-    // Adicionar users com favorito (exceto o autor do comentário)
-    usersWithFavorite.forEach(user => {
-      if (user._id.toString() !== commentAuthorId.toString()) {
-        usersToNotify.add(user._id.toString());
-      }
-    });
+    }).select('_id notificationPreferences');
 
     // Obter nome do autor do comentário
     const commentAuthor = await User.findById(commentAuthorId).select('name');
@@ -85,18 +70,46 @@ export async function notifyNewComment(materialId, commentAuthorId, commentText)
 
     // Criar notificações para cada user
     const notifications = [];
-    for (const userId of usersToNotify) {
-      const notification = await sendNotification({
-        user: userId,
-        type: 'comment',
-        material: materialId,
-        fromUser: commentAuthorId,
-        message: `${authorName} comentou no material "${material.title}"`,
-        metadata: {
-          commentText: commentText.substring(0, 100) // Primeiros 100 caracteres
-        }
-      });
-      if (notification) notifications.push(notification);
+    
+    // Notificar dono do material (se tiver preferência ativa)
+    if (material.author._id.toString() !== commentAuthorId.toString()) {
+      const materialOwner = await User.findById(material.author._id).select('notificationPreferences');
+      const ownerPrefs = materialOwner?.notificationPreferences || {};
+      
+      if (ownerPrefs.commentOnMyMaterial !== false) { // Default true se não existir
+        const notification = await sendNotification({
+          user: material.author._id,
+          type: 'comment',
+          material: materialId,
+          fromUser: commentAuthorId,
+          message: `${authorName} comentou no material "${material.title}"`,
+          metadata: {
+            commentText: commentText.substring(0, 100)
+          }
+        });
+        if (notification) notifications.push(notification);
+      }
+    }
+
+    // Notificar users com favorito (se tiverem preferência ativa)
+    for (const user of usersWithFavorite) {
+      if (user._id.toString() === commentAuthorId.toString()) continue;
+      if (user._id.toString() === material.author._id.toString()) continue; // Já foi notificado acima
+      
+      const userPrefs = user.notificationPreferences || {};
+      if (userPrefs.commentOnFavorite !== false) { // Default true se não existir
+        const notification = await sendNotification({
+          user: user._id,
+          type: 'comment',
+          material: materialId,
+          fromUser: commentAuthorId,
+          message: `${authorName} comentou no material "${material.title}"`,
+          metadata: {
+            commentText: commentText.substring(0, 100)
+          }
+        });
+        if (notification) notifications.push(notification);
+      }
     }
 
     return notifications;
@@ -120,6 +133,15 @@ export async function notifyNewRating(materialId, ratingAuthorId, rating) {
       return null;
     }
 
+    // Verificar preferências de notificação do dono do material
+    const materialOwner = await User.findById(material.author._id).select('notificationPreferences');
+    const ownerPrefs = materialOwner?.notificationPreferences || {};
+    
+    // Se a preferência estiver desativada, não enviar notificação
+    if (ownerPrefs.rating === false) {
+      return null;
+    }
+
     // Obter nome do autor da avaliação
     const ratingAuthor = await User.findById(ratingAuthorId).select('name');
     const authorName = ratingAuthor?.name || 'Alguém';
@@ -140,6 +162,63 @@ export async function notifyNewRating(materialId, ratingAuthorId, rating) {
   } catch (error) {
     console.error('Erro ao notificar sobre avaliação:', error);
     return null;
+  }
+}
+
+/**
+ * Notificar todos os administradores sobre novo report
+ * Notifica: todos os administradores (que tenham preferência ativa)
+ */
+export async function notifyAdminsNewReport(materialId, reportType, reportedBy, reason) {
+  try {
+    const material = await Material.findById(materialId).select('title');
+    if (!material) return;
+
+    // Encontrar todos os administradores com suas preferências
+    const admins = await User.find({ role: 'Administrador' }).select('_id notificationPreferences');
+    
+    if (admins.length === 0) return [];
+
+    // Obter nome de quem reportou
+    const reporter = await User.findById(reportedBy).select('name');
+    const reporterName = reporter?.name || 'Alguém';
+
+    // Criar mensagem baseada no tipo de report
+    let message = '';
+    const materialTitle = material.title || 'Material';
+    if (reportType === 'material') {
+      message = `${reporterName} reportou o material "${materialTitle}"`;
+    } else if (reportType === 'comment') {
+      message = `${reporterName} reportou um comentário no material "${materialTitle}"`;
+    }
+
+    // Criar notificações apenas para administradores com preferência ativa
+    const notifications = [];
+    for (const admin of admins) {
+      const adminPrefs = admin.notificationPreferences || {};
+      // Se a preferência estiver desativada, não enviar notificação
+      if (adminPrefs.report === false) {
+        continue;
+      }
+
+      const notification = await sendNotification({
+        user: admin._id,
+        type: 'report',
+        material: materialId,
+        fromUser: reportedBy,
+        message: message,
+        metadata: {
+          reportType: reportType,
+          reason: reason.substring(0, 200) // Primeiros 200 caracteres
+        }
+      });
+      if (notification) notifications.push(notification);
+    }
+
+    return notifications;
+  } catch (error) {
+    console.error('Erro ao notificar administradores sobre report:', error);
+    return [];
   }
 }
 

@@ -29,13 +29,13 @@ const materialSchema = new mongoose.Schema({
   year: {
     type: Number,
     required: [true, 'Ano é obrigatório'],
-    min: 1,
-    max: 5
+    min: 1
+    // Removido max: 5 para permitir anos dinâmicos
   },
   materialType: {
     type: String,
-    enum: ['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides'],
     required: [true, 'Tipo de material é obrigatório']
+    // Removido enum para permitir tipos dinâmicos (validação é feita nas rotas)
   },
   fileUrl: {
     type: String,

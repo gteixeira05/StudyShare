@@ -125,6 +125,7 @@ io.on('connection', (socket) => {
 import notificationRoutes from './routes/notification.routes.js';
 import favoriteRoutes from './routes/favorite.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import configRoutes from './routes/config.routes.js';
 import { setIO } from './utils/notifications.js';
 
 // Configurar io para notificações
@@ -137,6 +138,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/favorites', favoriteRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/config', configRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

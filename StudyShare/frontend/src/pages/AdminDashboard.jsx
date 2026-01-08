@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
 import Sidebar from '../components/Sidebar'
 import Avatar from '../components/Avatar'
+import ConfirmModal from '../components/ConfirmModal'
 import {
   FiUsers,
   FiFileText,
@@ -17,14 +18,18 @@ import {
   FiAlertCircle,
   FiTrendingUp,
   FiSearch,
-  FiArrowLeft
+  FiArrowLeft,
+  FiSettings,
+  FiPlus,
+  FiEdit2
 } from 'react-icons/fi'
 
 const AdminDashboard = () => {
   const { user } = useAuth()
   const { success, error: showError } = useToast()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('stats')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'stats')
   const [stats, setStats] = useState(null)
   const [reports, setReports] = useState([])
   const [users, setUsers] = useState([])
@@ -34,6 +39,22 @@ const AdminDashboard = () => {
   const [reportsLoading, setReportsLoading] = useState(false)
   const [usersLoading, setUsersLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
+  
+  // Config states
+  const [availableYears, setAvailableYears] = useState([])
+  const [materialTypes, setMaterialTypes] = useState([])
+  const [configLoading, setConfigLoading] = useState(false)
+  const [editingConfig, setEditingConfig] = useState(null)
+  const [newConfigValue, setNewConfigValue] = useState({ value: '', label: '' })
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [currentConfigKey, setCurrentConfigKey] = useState(null)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'warning'
+  })
 
   useEffect(() => {
     if (!user || user.role !== 'Administrador') {
@@ -48,8 +69,28 @@ const AdminDashboard = () => {
       fetchReports()
     } else if (activeTab === 'users') {
       fetchUsers()
+    } else if (activeTab === 'config') {
+      fetchConfigs()
     }
   }, [activeTab])
+
+  // Sincronizar activeTab com query params
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab')
+    if (tabFromUrl && ['stats', 'reports', 'users', 'config'].includes(tabFromUrl)) {
+      setActiveTab(tabFromUrl)
+    }
+  }, [searchParams])
+
+  // Atualizar query params quando activeTab mudar
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    if (tab === 'stats') {
+      setSearchParams({})
+    } else {
+      setSearchParams({ tab })
+    }
+  }
 
   const fetchStats = async () => {
     try {
@@ -122,20 +163,139 @@ const AdminDashboard = () => {
     }
   }
 
-  const handleToggleUserRole = async (userId, currentRole) => {
-    if (!window.confirm(`Tens a certeza que queres ${currentRole === 'Administrador' ? 'remover' : 'promover'} este utilizador?`)) {
+  const handleToggleUserRole = (userId, currentRole) => {
+    const isRemoving = currentRole === 'Administrador'
+    setConfirmModal({
+      isOpen: true,
+      title: isRemoving ? 'Remover Administrador' : 'Promover a Administrador',
+      message: `Tens a certeza que queres ${isRemoving ? 'remover' : 'promover'} este utilizador?`,
+      type: isRemoving ? 'danger' : 'warning',
+      onConfirm: async () => {
+        setActionLoading(userId)
+        try {
+          const newRole = currentRole === 'Administrador' ? 'Estudante' : 'Administrador'
+          await api.put(`/admin/users/${userId}/role`, { role: newRole })
+          success(`Utilizador ${newRole === 'Administrador' ? 'promovido a' : 'removido de'} administrador com sucesso`)
+          fetchUsers()
+          fetchStats()
+        } catch (error) {
+          showError(error.response?.data?.message || 'Erro ao atualizar role')
+        } finally {
+          setActionLoading(null)
+        }
+      }
+    })
+  }
+
+  const fetchConfigs = async () => {
+    setConfigLoading(true)
+    try {
+      const [yearsRes, typesRes] = await Promise.all([
+        api.get('/admin/config/availableYears'),
+        api.get('/admin/config/materialTypes')
+      ])
+      setAvailableYears(yearsRes.data.allValues || [])
+      setMaterialTypes(typesRes.data.allValues || [])
+    } catch (error) {
+      console.error('Erro ao buscar configurações:', error)
+      showError('Erro ao carregar configurações')
+    } finally {
+      setConfigLoading(false)
+    }
+  }
+
+  const handleAddConfig = async (key) => {
+    if (!newConfigValue.value || !newConfigValue.label) {
+      showError('Por favor, preenche todos os campos')
       return
     }
 
-    setActionLoading(userId)
+    setActionLoading('add')
     try {
-      const newRole = currentRole === 'Administrador' ? 'Estudante' : 'Administrador'
-      await api.put(`/admin/users/${userId}/role`, { role: newRole })
-      success(`Utilizador ${newRole === 'Administrador' ? 'promovido a' : 'removido de'} administrador com sucesso`)
-      fetchUsers()
-      fetchStats()
+      await api.post(`/admin/config/${key}/values`, {
+        value: key === 'availableYears' ? parseInt(newConfigValue.value) : newConfigValue.value,
+        label: newConfigValue.label
+      })
+      success('Valor adicionado com sucesso')
+      setNewConfigValue({ value: '', label: '' })
+      setShowAddModal(false)
+      setCurrentConfigKey(null)
+      fetchConfigs()
     } catch (error) {
-      showError(error.response?.data?.message || 'Erro ao atualizar role')
+      showError(error.response?.data?.message || 'Erro ao adicionar valor')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handleDeleteConfig = (key, valueId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Desativar Valor',
+      message: 'Tens a certeza que queres desativar este valor? Ele não aparecerá mais nas opções, mas materiais existentes não serão afetados.',
+      type: 'warning',
+      confirmText: 'Desativar',
+      onConfirm: async () => {
+        setActionLoading(valueId)
+        try {
+          await api.delete(`/admin/config/${key}/values/${valueId}`)
+          success('Valor desativado com sucesso')
+          fetchConfigs()
+        } catch (error) {
+          showError(error.response?.data?.message || 'Erro ao desativar valor')
+        } finally {
+          setActionLoading(null)
+        }
+      }
+    })
+  }
+
+  const handleReactivateConfig = async (key, valueId) => {
+    setActionLoading(valueId)
+    try {
+      await api.put(`/admin/config/${key}/values/${valueId}`, {
+        isActive: true
+      })
+      success('Valor reativado com sucesso')
+      fetchConfigs()
+    } catch (error) {
+      showError(error.response?.data?.message || 'Erro ao reativar valor')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  const handlePermanentDeleteConfig = (key, valueId, valueLabel) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Permanentemente',
+      message: `Tens a certeza que queres eliminar permanentemente "${valueLabel}"? Esta ação não pode ser desfeita. Nota: Só será possível eliminar se não houver materiais a usar este valor.`,
+      type: 'danger',
+      confirmText: 'Eliminar Permanentemente',
+      onConfirm: async () => {
+        setActionLoading(`delete-${valueId}`)
+        try {
+          await api.delete(`/admin/config/${key}/values/${valueId}/permanent`)
+          success('Valor eliminado permanentemente com sucesso')
+          fetchConfigs()
+        } catch (error) {
+          showError(error.response?.data?.message || 'Erro ao eliminar valor. Verifica se existem materiais a usar este valor.')
+        } finally {
+          setActionLoading(null)
+        }
+      }
+    })
+  }
+
+  const handleUpdateConfig = async (key, valueId, updates) => {
+    setActionLoading(valueId)
+    try {
+      await api.put(`/admin/config/${key}/values/${valueId}`, updates)
+      success('Valor atualizado com sucesso')
+      setEditingConfig(null)
+      fetchConfigs()
+    } catch (error) {
+      showError(error.response?.data?.message || 'Erro ao atualizar valor')
     } finally {
       setActionLoading(null)
     }
@@ -184,7 +344,7 @@ const AdminDashboard = () => {
         {/* Tabs */}
         <div className="flex gap-2 mb-6 border-b border-gray-200">
           <button
-            onClick={() => setActiveTab('stats')}
+            onClick={() => handleTabChange('stats')}
             className={`px-6 py-3 font-semibold transition-all border-b-2 ${
               activeTab === 'stats'
                 ? 'border-primary-600 text-primary-600'
@@ -194,7 +354,7 @@ const AdminDashboard = () => {
             Estatísticas
           </button>
           <button
-            onClick={() => setActiveTab('reports')}
+            onClick={() => handleTabChange('reports')}
             className={`px-6 py-3 font-semibold transition-all border-b-2 relative ${
               activeTab === 'reports'
                 ? 'border-primary-600 text-primary-600'
@@ -209,7 +369,7 @@ const AdminDashboard = () => {
             )}
           </button>
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => handleTabChange('users')}
             className={`px-6 py-3 font-semibold transition-all border-b-2 ${
               activeTab === 'users'
                 ? 'border-primary-600 text-primary-600'
@@ -217,6 +377,16 @@ const AdminDashboard = () => {
             }`}
           >
             Utilizadores
+          </button>
+          <button
+            onClick={() => handleTabChange('config')}
+            className={`px-6 py-3 font-semibold transition-all border-b-2 ${
+              activeTab === 'config'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Configurações
           </button>
         </div>
 
@@ -442,7 +612,353 @@ const AdminDashboard = () => {
             )}
           </div>
         )}
+
+        {activeTab === 'config' && (
+          <div className="space-y-6">
+            {configLoading ? (
+              <div className="flex justify-center py-12">
+                <FiLoader className="w-8 h-8 text-primary-600 animate-spin" />
+              </div>
+            ) : (
+              <>
+                {/* Anos Disponíveis */}
+                <div className="card p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <FiFileText className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900">Anos Disponíveis</h3>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setCurrentConfigKey('availableYears')
+                        setShowAddModal(true)
+                        setNewConfigValue({ value: '', label: '' })
+                      }}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      <FiPlus className="w-4 h-4" />
+                      Adicionar Ano
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {availableYears.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">Nenhum ano configurado</p>
+                    ) : (
+                      availableYears.map((year) => (
+                        <div
+                          key={year._id}
+                          className={`flex items-center justify-between p-4 rounded-lg border ${
+                            year.isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {editingConfig === year._id ? (
+                              <input
+                                id={`year-label-${year._id}`}
+                                type="text"
+                                defaultValue={year.label}
+                                className="px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              />
+                            ) : (
+                              <span className="font-medium text-gray-900">{year.label}</span>
+                            )}
+                            {!year.isActive && (
+                              <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded">Desativado</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {year.isActive ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    if (editingConfig === year._id) {
+                                      handleUpdateConfig('availableYears', year._id, {
+                                        label: document.getElementById(`year-label-${year._id}`).value
+                                      })
+                                    } else {
+                                      setEditingConfig(year._id)
+                                    }
+                                  }}
+                                  disabled={actionLoading === year._id || actionLoading === `delete-${year._id}`}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                >
+                                  {actionLoading === year._id ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : editingConfig === year._id ? (
+                                    <FiCheck className="w-4 h-4" />
+                                  ) : (
+                                    <FiEdit2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteConfig('availableYears', year._id)}
+                                  disabled={actionLoading === year._id || actionLoading === `delete-${year._id}`}
+                                  className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                  title="Desativar"
+                                >
+                                  <FiX className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handlePermanentDeleteConfig('availableYears', year._id, year.label)}
+                                  disabled={actionLoading === year._id || actionLoading === `delete-${year._id}`}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar Permanentemente"
+                                >
+                                  {actionLoading === `delete-${year._id}` ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <FiTrash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleReactivateConfig('availableYears', year._id)}
+                                  disabled={actionLoading === year._id || actionLoading === `delete-${year._id}`}
+                                  className="px-3 py-1.5 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+                                  title="Reativar"
+                                >
+                                  {actionLoading === year._id ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <FiCheck className="w-4 h-4" />
+                                      Reativar
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handlePermanentDeleteConfig('availableYears', year._id, year.label)}
+                                  disabled={actionLoading === year._id || actionLoading === `delete-${year._id}`}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar Permanentemente"
+                                >
+                                  {actionLoading === `delete-${year._id}` ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <FiTrash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                {/* Tipos de Material */}
+                <div className="card p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-purple-100 rounded-lg">
+                        <FiFileText className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <h3 className="text-xl font-bold text-gray-900">Tipos de Material</h3>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setCurrentConfigKey('materialTypes')
+                        setShowAddModal(true)
+                        setNewConfigValue({ value: '', label: '' })
+                      }}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      <FiPlus className="w-4 h-4" />
+                      Adicionar Tipo
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {materialTypes.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">Nenhum tipo configurado</p>
+                    ) : (
+                      materialTypes.map((type) => (
+                        <div
+                          key={type._id}
+                          className={`flex items-center justify-between p-4 rounded-lg border ${
+                            type.isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-200 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 flex-1">
+                            {editingConfig === type._id ? (
+                              <input
+                                id={`type-label-${type._id}`}
+                                type="text"
+                                defaultValue={type.label}
+                                className="px-3 py-1 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              />
+                            ) : (
+                              <span className="font-medium text-gray-900">{type.label}</span>
+                            )}
+                            {!type.isActive && (
+                              <span className="px-2 py-1 bg-gray-200 text-gray-600 text-xs rounded">Desativado</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {type.isActive ? (
+                              <>
+                                <button
+                                  onClick={() => {
+                                    if (editingConfig === type._id) {
+                                      handleUpdateConfig('materialTypes', type._id, {
+                                        label: document.getElementById(`type-label-${type._id}`).value
+                                      })
+                                    } else {
+                                      setEditingConfig(type._id)
+                                    }
+                                  }}
+                                  disabled={actionLoading === type._id || actionLoading === `delete-${type._id}`}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                >
+                                  {actionLoading === type._id ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : editingConfig === type._id ? (
+                                    <FiCheck className="w-4 h-4" />
+                                  ) : (
+                                    <FiEdit2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteConfig('materialTypes', type._id)}
+                                  disabled={actionLoading === type._id || actionLoading === `delete-${type._id}`}
+                                  className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                  title="Desativar"
+                                >
+                                  <FiX className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handlePermanentDeleteConfig('materialTypes', type._id, type.label)}
+                                  disabled={actionLoading === type._id || actionLoading === `delete-${type._id}`}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar Permanentemente"
+                                >
+                                  {actionLoading === `delete-${type._id}` ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <FiTrash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => handleReactivateConfig('materialTypes', type._id)}
+                                  disabled={actionLoading === type._id || actionLoading === `delete-${type._id}`}
+                                  className="px-3 py-1.5 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors text-sm font-medium flex items-center gap-1.5"
+                                  title="Reativar"
+                                >
+                                  {actionLoading === type._id ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <FiCheck className="w-4 h-4" />
+                                      Reativar
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handlePermanentDeleteConfig('materialTypes', type._id, type.label)}
+                                  disabled={actionLoading === type._id || actionLoading === `delete-${type._id}`}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar Permanentemente"
+                                >
+                                  {actionLoading === `delete-${type._id}` ? (
+                                    <FiLoader className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <FiTrash2 className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* Modal para Adicionar Config */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">
+              Adicionar {currentConfigKey === 'availableYears' ? 'Ano' : 'Tipo de Material'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {currentConfigKey === 'availableYears' ? 'Número do Ano' : 'Nome do Tipo'} *
+                </label>
+                <input
+                  type={currentConfigKey === 'availableYears' ? 'number' : 'text'}
+                  value={newConfigValue.value}
+                  onChange={(e) => setNewConfigValue({ ...newConfigValue, value: e.target.value })}
+                  placeholder={currentConfigKey === 'availableYears' ? 'Ex: 6' : 'Ex: Livro'}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Label (Texto Exibido) *</label>
+                <input
+                  type="text"
+                  value={newConfigValue.label}
+                  onChange={(e) => setNewConfigValue({ ...newConfigValue, label: e.target.value })}
+                  placeholder={currentConfigKey === 'availableYears' ? 'Ex: 6º Ano' : 'Ex: Livro'}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  required
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowAddModal(false)
+                  setNewConfigValue({ value: '', label: '' })
+                  setCurrentConfigKey(null)
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleAddConfig(currentConfigKey)}
+                disabled={actionLoading === 'add' || !newConfigValue.value || !newConfigValue.label}
+                className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {actionLoading === 'add' ? (
+                  <FiLoader className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <FiPlus className="w-4 h-4" />
+                    Adicionar
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm || (() => {})}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        confirmText={confirmModal.confirmText || (confirmModal.type === 'danger' ? 'Remover' : 'Confirmar')}
+      />
     </div>
   )
 }

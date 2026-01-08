@@ -10,7 +10,27 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:5000',
         changeOrigin: true,
-        ws: true
+        ws: true,
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', () => {
+            // Request iniciado - silenciar erros de conexão
+          })
+          proxy.on('error', (err, req, res) => {
+            // Silenciar apenas erros ECONNREFUSED e ECONNRESET
+            if (err.code === 'ECONNREFUSED' || err.code === 'ECONNRESET' || err.message?.includes('ECONNREFUSED')) {
+              // Servidor não disponível ou a reiniciar - não mostrar erro
+              return
+            }
+            // Para outros erros, verificar se já foi enviada resposta
+            if (!res.headersSent) {
+              console.error('⚠️ Erro de proxy:', err.message)
+            }
+          })
+          proxy.on('proxyRes', () => {
+            // Response recebido - tudo OK
+          })
+        }
       }
     }
   }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../contexts/SocketContext'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
-import { FiBell, FiX, FiMessageSquare, FiStar, FiHeart } from 'react-icons/fi'
+import { FiBell, FiX, FiMessageSquare, FiStar, FiHeart, FiFlag } from 'react-icons/fi'
 
 const NotificationBell = () => {
   const { user } = useAuth()
@@ -59,7 +59,13 @@ const NotificationBell = () => {
       }
     }
     setIsOpen(false)
-    navigate(`/material/${notification.material._id || notification.material}`)
+    
+    // Se for notificação de report e o utilizador for admin, ir para o painel de admin
+    if (notification.type === 'report' && user?.role === 'Administrador') {
+      navigate('/admin?tab=reports')
+    } else {
+      navigate(`/material/${notification.material._id || notification.material}`)
+    }
   }
 
   const handleMarkAllAsRead = async () => {
@@ -89,6 +95,8 @@ const NotificationBell = () => {
         return <FiStar className="w-5 h-5" />
       case 'favorite':
         return <FiHeart className="w-5 h-5" />
+      case 'report':
+        return <FiFlag className="w-5 h-5" />
       default:
         return <FiBell className="w-5 h-5" />
     }

@@ -76,3 +76,61 @@
   }
 }
 
+/* Estilos para preview de documentos Word */
+.word-preview {
+  @apply text-gray-900;
+}
+
+.word-preview h1,
+.word-preview h2,
+.word-preview h3,
+.word-preview h4 {
+  @apply font-bold text-gray-900 mt-4 mb-2;
+}
+
+.word-preview h1 {
+  @apply text-2xl;
+}
+
+.word-preview h2 {
+  @apply text-xl;
+}
+
+.word-preview h3 {
+  @apply text-lg;
+}
+
+.word-preview p {
+  @apply mb-3 leading-relaxed;
+}
+
+.word-preview ul,
+.word-preview ol {
+  @apply mb-3 ml-6;
+}
+
+.word-preview li {
+  @apply mb-1;
+}
+
+.word-preview table {
+  @apply w-full border-collapse mb-4;
+}
+
+.word-preview table td,
+.word-preview table th {
+  @apply border border-gray-300 px-3 py-2;
+}
+
+.word-preview table th {
+  @apply bg-gray-100 font-semibold;
+}
+
+.word-preview strong {
+  @apply font-semibold;
+}
+
+.word-preview em {
+  @apply italic;
+}
+

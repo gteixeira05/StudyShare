@@ -66,7 +66,25 @@ const userSchema = new mongoose.Schema({
   favorites: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Material'
-  }]
+  }],
+  notificationPreferences: {
+    rating: {
+      type: Boolean,
+      default: true // Notificações quando alguém avalia um material teu
+    },
+    commentOnMyMaterial: {
+      type: Boolean,
+      default: true // Notificações quando comentam num material teu
+    },
+    commentOnFavorite: {
+      type: Boolean,
+      default: true // Notificações quando comentam num material dos teus favoritos
+    },
+    report: {
+      type: Boolean,
+      default: true // Notificações de reports (apenas para administradores)
+    }
+  }
 }, {
   timestamps: true,
   toJSON: { virtuals: true },

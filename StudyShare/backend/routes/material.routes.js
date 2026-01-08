@@ -6,14 +6,51 @@ import { fileURLToPath } from 'url';
 import multer from 'multer';
 import Material from '../models/Material.model.js';
 import User from '../models/User.model.js';
+import SystemConfig from '../models/SystemConfig.model.js';
 import { authMiddleware, optionalAuth } from '../middleware/auth.middleware.js';
-import { notifyNewComment, notifyNewRating, emitNewComment, emitRatingUpdate } from '../utils/notifications.js';
+import { notifyNewComment, notifyNewRating, emitNewComment, emitRatingUpdate, notifyAdminsNewReport } from '../utils/notifications.js';
 import { updateMaterialAuthorReputation, recalculateUserReputation } from '../utils/reputation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const router = express.Router();
+
+// Helper para validar ano dinamicamente
+const validateYear = async (year) => {
+  try {
+    const config = await SystemConfig.findOne({ key: 'availableYears' });
+    if (config) {
+      const validYears = config.values.filter(v => v.isActive).map(v => v.value);
+      return validYears.includes(parseInt(year));
+    }
+    // Fallback para validação padrão (1-5)
+    const yearNum = parseInt(year);
+    return yearNum >= 1 && yearNum <= 5;
+  } catch (error) {
+    // Fallback para validação padrão
+    const yearNum = parseInt(year);
+    return yearNum >= 1 && yearNum <= 5;
+  }
+};
+
+// Helper para validar tipo de material dinamicamente
+const validateMaterialType = async (materialType) => {
+  try {
+    const config = await SystemConfig.findOne({ key: 'materialTypes' });
+    if (config) {
+      const validTypes = config.values.filter(v => v.isActive).map(v => v.value);
+      return validTypes.includes(materialType);
+    }
+    // Fallback para tipos padrão
+    const defaultTypes = ['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides'];
+    return defaultTypes.includes(materialType);
+  } catch (error) {
+    // Fallback para tipos padrão
+    const defaultTypes = ['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides'];
+    return defaultTypes.includes(materialType);
+  }
+};
 
 // Configurar multer para upload de ficheiros
 const storage = multer.diskStorage({
@@ -59,8 +96,8 @@ router.get('/', [
   query('search').optional().trim(),
   query('discipline').optional().trim(),
   query('course').optional().trim(),
-  query('year').optional().isInt({ min: 1, max: 5 }),
-  query('materialType').optional().isIn(['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides']),
+  query('year').optional(),
+  query('materialType').optional(),
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 100 }),
   query('sort').optional().isIn(['recent', 'rating', 'downloads', 'views'])
@@ -266,9 +303,21 @@ router.post('/', [
     .trim()
     .notEmpty().withMessage('Disciplina é obrigatória'),
   body('year')
-    .isInt({ min: 1, max: 5 }).withMessage('Ano deve estar entre 1 e 5'),
+    .custom(async (value) => {
+      const isValid = await validateYear(value);
+      if (!isValid) {
+        throw new Error('Ano inválido. Verifica os anos disponíveis nas configurações.');
+      }
+      return true;
+    }),
   body('materialType')
-    .isIn(['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides']).withMessage('Tipo de material inválido'),
+    .custom(async (value) => {
+      const isValid = await validateMaterialType(value);
+      if (!isValid) {
+        throw new Error('Tipo de material inválido. Verifica os tipos disponíveis nas configurações.');
+      }
+      return true;
+    }),
   body('tags')
     .optional()
     .isArray().withMessage('Tags deve ser um array'),
@@ -363,6 +412,26 @@ router.put('/:id', authMiddleware, async (req, res) => {
       });
     }
 
+    // Validar ano se fornecido
+    if (req.body.year !== undefined) {
+      const isValidYear = await validateYear(req.body.year);
+      if (!isValidYear) {
+        return res.status(400).json({
+          message: 'Ano inválido. Verifica os anos disponíveis nas configurações.'
+        });
+      }
+    }
+
+    // Validar tipo de material se fornecido
+    if (req.body.materialType !== undefined) {
+      const isValidType = await validateMaterialType(req.body.materialType);
+      if (!isValidType) {
+        return res.status(400).json({
+          message: 'Tipo de material inválido. Verifica os tipos disponíveis nas configurações.'
+        });
+      }
+    }
+
     // Campos permitidos para atualização
     const allowedUpdates = ['title', 'description', 'discipline', 'course', 'year', 'materialType', 'tags'];
     const updates = Object.keys(req.body).filter(key => allowedUpdates.includes(key));
@@ -452,6 +521,113 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     console.error('Erro ao remover material:', error);
     res.status(500).json({
       message: 'Erro ao remover material'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/materials/:id/preview
+ * @desc    Pré-visualizar o ficheiro do material (sem autenticação, apenas visualização)
+ * @access  Public
+ */
+router.get('/:id/preview', async (req, res) => {
+  try {
+    const material = await Material.findById(req.params.id);
+
+    if (!material || !material.isActive || !material.isApproved) {
+      return res.status(404).json({
+        message: 'Material não encontrado'
+      });
+    }
+
+    // Se fileUrl é uma URL externa (http/https), redirecionar
+    if (material.fileUrl.startsWith('http://') || material.fileUrl.startsWith('https://')) {
+      return res.redirect(material.fileUrl);
+    }
+
+    // Para URLs locais, servir o ficheiro diretamente
+    try {
+      // Construir caminho completo do ficheiro
+      let filePath;
+      if (material.fileUrl.startsWith('/')) {
+        filePath = path.join(__dirname, '..', material.fileUrl);
+      } else {
+        filePath = path.isAbsolute(material.fileUrl) 
+          ? material.fileUrl 
+          : path.join(__dirname, '..', material.fileUrl);
+      }
+      
+      // Verificar se o ficheiro existe
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json({
+          message: 'Ficheiro não encontrado no servidor',
+          fileUrl: material.fileUrl
+        });
+      }
+      
+      // Obter informações do ficheiro
+      const stats = fs.statSync(filePath);
+      const fileSize = stats.size;
+      const ext = path.extname(material.fileName || filePath).toLowerCase();
+      
+      // Determinar content-type baseado na extensão
+      const contentTypes = {
+        '.pdf': 'application/pdf',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        '.ppt': 'application/vnd.ms-powerpoint',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.doc': 'application/msword',
+        '.zip': 'application/zip',
+        '.txt': 'text/plain',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.svg': 'image/svg+xml'
+      };
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+      
+      // Headers para visualização (inline, não download)
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(material.fileName || 'file')}"`);
+      res.setHeader('Content-Length', fileSize);
+      
+      // Headers para permitir CORS e embedding em iframes
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // Permitir embedding no mesmo domínio
+      
+      // Ler e enviar o ficheiro
+      const fileStream = fs.createReadStream(filePath);
+      
+      fileStream.on('error', (error) => {
+        console.error('Erro ao ler ficheiro para preview:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            message: 'Erro ao ler ficheiro',
+            error: error.message
+          });
+        }
+      });
+      
+      fileStream.pipe(res);
+      return;
+    } catch (error) {
+      console.error('Erro ao servir ficheiro local para preview:', error);
+      if (error.code === 'ENOENT') {
+        return res.status(404).json({
+          message: 'Ficheiro não encontrado no servidor'
+        });
+      }
+      return res.status(500).json({
+        message: 'Erro ao servir ficheiro'
+      });
+    }
+  } catch (error) {
+    console.error('Erro ao servir preview:', error);
+    res.status(500).json({
+      message: 'Erro ao servir preview'
     });
   }
 });
@@ -888,6 +1064,11 @@ router.post('/:id/comments/:commentId/report', [
 
     await material.save();
 
+    // Notificar todos os administradores
+    notifyAdminsNewReport(req.params.id, 'comment', userId, req.body.reason.trim()).catch(err => {
+      console.error('Erro ao notificar administradores sobre report:', err);
+    });
+
     res.json({
       message: 'Comentário reportado com sucesso'
     });
@@ -1083,6 +1264,11 @@ router.post('/:id/report', [
     });
 
     await material.save();
+
+    // Notificar todos os administradores
+    notifyAdminsNewReport(req.params.id, 'material', req.user._id, req.body.reason).catch(err => {
+      console.error('Erro ao notificar administradores sobre report:', err);
+    });
 
     res.status(201).json({
       message: 'Material reportado com sucesso. O administrador irá analisar.'

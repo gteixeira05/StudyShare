@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
+import mammoth from 'mammoth'
 import api from '../services/api'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import { useSocket } from '../contexts/SocketContext'
 import Sidebar from '../components/Sidebar'
 import Avatar from '../components/Avatar'
+import ConfirmModal from '../components/ConfirmModal'
 import { 
   FiDownload, 
   FiLoader, 
@@ -16,6 +18,8 @@ import {
   FiCalendar,
   FiEye,
   FiArrowLeft,
+  FiArrowUp,
+  FiArrowDown,
   FiHeart,
   FiFlag,
   FiEdit,
@@ -49,10 +53,27 @@ const MaterialDetailsPage = () => {
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [commentSortBy, setCommentSortBy] = useState('date') // 'date', 'likes', 'dislikes', 'popularity'
+  const [commentPage, setCommentPage] = useState(1)
+  const [commentsPerPage] = useState(5) // Mostrar 5 comentários por página
   const [showCommentReportModal, setShowCommentReportModal] = useState(false)
+  const [availableYears, setAvailableYears] = useState([])
+  const [materialTypes, setMaterialTypes] = useState([])
   const [commentReportReason, setCommentReportReason] = useState('')
   const [reportingComment, setReportingComment] = useState(null)
   const [reportingCommentLoading, setReportingCommentLoading] = useState(false)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'danger'
+  })
+  const [imagePreviewError, setImagePreviewError] = useState(false)
+  const [wordPreviewHtml, setWordPreviewHtml] = useState(null)
+  const [loadingWordPreview, setLoadingWordPreview] = useState(false)
+  const [showWordPreview, setShowWordPreview] = useState(false)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [showImagePreview, setShowImagePreview] = useState(false)
   const hasFetchedRef = useRef(false)
 
   useEffect(() => {
@@ -98,7 +119,96 @@ const MaterialDetailsPage = () => {
   // Reset quando o ID muda
   useEffect(() => {
     hasFetchedRef.current = false
+    setImagePreviewError(false) // Reset erro de preview quando material muda
+    setWordPreviewHtml(null) // Reset preview Word quando material muda
+    setShowWordPreview(false) // Reset estado de mostrar preview
+    setShowPdfPreview(false) // Reset estado de mostrar preview PDF
+    setShowImagePreview(false) // Reset estado de mostrar preview imagem
   }, [id])
+
+  // Função para carregar preview de Word quando o utilizador clicar
+  const loadWordPreview = async () => {
+    if (!material || wordPreviewHtml || loadingWordPreview) return
+    
+    const fileExt = (material.fileName || '').split('.').pop()?.toLowerCase() || ''
+    const isWord = fileExt === 'docx' || fileExt === 'doc'
+    
+    if (!isWord || !material.fileUrl) return
+    
+    setLoadingWordPreview(true)
+    setShowWordPreview(true)
+    
+    try {
+      // Obter URL do ficheiro
+      const previewUrl = material.fileUrl?.startsWith('http') 
+        ? material.fileUrl 
+        : `/api/materials/${material._id}/preview`
+      
+      // Carregar ficheiro como array buffer
+      const response = await fetch(previewUrl)
+      if (!response.ok) {
+        throw new Error('Erro ao carregar ficheiro')
+      }
+      
+      const arrayBuffer = await response.arrayBuffer()
+      
+      // Converter DOCX para HTML usando mammoth
+      const result = await mammoth.convertToHtml({ arrayBuffer }, {
+        styleMap: [
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh",
+          "p[style-name='Heading 4'] => h4:fresh",
+        ]
+      })
+      
+      setWordPreviewHtml(result.value)
+      
+      // Mostrar avisos se houver
+      if (result.messages.length > 0) {
+        console.warn('Avisos do mammoth:', result.messages)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar preview Word:', error)
+      showError('Erro ao carregar preview do documento')
+      setShowWordPreview(false)
+      setWordPreviewHtml(null)
+    } finally {
+      setLoadingWordPreview(false)
+    }
+  }
+
+  // Buscar configurações de anos e tipos de material
+  useEffect(() => {
+    const fetchConfigs = async () => {
+      try {
+        const [yearsRes, typesRes] = await Promise.all([
+          api.get('/config/availableYears'),
+          api.get('/config/materialTypes')
+        ])
+        setAvailableYears(yearsRes.data.values || [])
+        setMaterialTypes(typesRes.data.values || [])
+      } catch (error) {
+        console.error('Erro ao buscar configurações:', error)
+        // Fallback para valores padrão
+        setAvailableYears([
+          { value: 1, label: '1º Ano' },
+          { value: 2, label: '2º Ano' },
+          { value: 3, label: '3º Ano' },
+          { value: 4, label: '4º Ano' },
+          { value: 5, label: '5º Ano' }
+        ])
+        setMaterialTypes([
+          { value: 'Apontamento', label: 'Apontamento' },
+          { value: 'Resumo', label: 'Resumo' },
+          { value: 'Exercícios', label: 'Exercícios' },
+          { value: 'Exame', label: 'Exame' },
+          { value: 'Slides', label: 'Slides' }
+        ])
+      }
+    }
+    fetchConfigs()
+  }, [])
 
   // Socket.IO: Entrar na sala do material e escutar novos comentários
   useEffect(() => {
@@ -477,32 +587,52 @@ const MaterialDetailsPage = () => {
     
     const comments = [...material.comments]
     
+    let sorted;
     switch (commentSortBy) {
       case 'likes':
-        return comments.sort((a, b) => {
+        sorted = comments.sort((a, b) => {
           const aLikes = a.likes?.length || 0
           const bLikes = b.likes?.length || 0
           return bLikes - aLikes
         })
+        break
       case 'dislikes':
-        return comments.sort((a, b) => {
+        sorted = comments.sort((a, b) => {
           const aDislikes = a.dislikes?.length || 0
           const bDislikes = b.dislikes?.length || 0
           return bDislikes - aDislikes
         })
+        break
       case 'popularity':
-        return comments.sort((a, b) => {
+        sorted = comments.sort((a, b) => {
           const aScore = (a.likes?.length || 0) - (a.dislikes?.length || 0)
           const bScore = (b.likes?.length || 0) - (b.dislikes?.length || 0)
           return bScore - aScore
         })
+        break
       case 'date':
       default:
-        return comments.sort((a, b) => {
+        sorted = comments.sort((a, b) => {
           return new Date(b.createdAt) - new Date(a.createdAt)
         })
     }
+    
+    return sorted
   }
+
+  const getPaginatedComments = () => {
+    const sorted = getSortedComments()
+    const startIndex = (commentPage - 1) * commentsPerPage
+    const endIndex = startIndex + commentsPerPage
+    return sorted.slice(startIndex, endIndex)
+  }
+
+  const totalCommentPages = Math.ceil((material?.comments?.length || 0) / commentsPerPage)
+
+  // Reset para página 1 quando mudar ordenação
+  useEffect(() => {
+    setCommentPage(1)
+  }, [commentSortBy])
 
   const handleSubmitRating = async (ratingValue) => {
     if (!user) {
@@ -591,20 +721,32 @@ const MaterialDetailsPage = () => {
     }
   }
 
-  const handleDelete = async () => {
-    if (!window.confirm('Tens a certeza que queres eliminar este material? Esta ação não pode ser desfeita.')) {
-      return
-    }
+  const handleDelete = () => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Material',
+      message: 'Tens a certeza que queres eliminar este material? Esta ação não pode ser desfeita.',
+      type: 'danger',
+      onConfirm: async () => {
+        setDeleting(true)
+        try {
+          await api.delete(`/materials/${id}`)
+          success('Material eliminado com sucesso')
+          navigate('/')
+        } catch (error) {
+          showError(error.response?.data?.message || 'Erro ao eliminar material')
+          setDeleting(false)
+        }
+      }
+    })
+  }
 
-    setDeleting(true)
-    try {
-      await api.delete(`/materials/${id}`)
-      success('Material eliminado com sucesso')
-      navigate('/')
-    } catch (error) {
-      showError(error.response?.data?.message || 'Erro ao eliminar material')
-      setDeleting(false)
-    }
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   const isAdmin = user?.role === 'Administrador'
@@ -773,12 +915,453 @@ const MaterialDetailsPage = () => {
                 ))}
               </div>
 
-              <div className="bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl p-16 text-center mb-6">
-                <svg className="mx-auto h-20 w-20 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                <p className="mt-4 text-gray-600 font-medium">Pré-visualização do documento</p>
-              </div>
+              {/* Preview do Documento */}
+              {(() => {
+                const fileType = material.fileType?.toLowerCase() || ''
+                const fileName = material.fileName || ''
+                const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
+                const isPDF = fileType.includes('pdf') || fileExt === 'pdf'
+                const isImage = fileType.includes('image') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExt)
+                const isOffice = ['docx', 'doc', 'pptx', 'ppt', 'xlsx', 'xls'].includes(fileExt) || 
+                                fileType.includes('office') || 
+                                fileType.includes('presentation') || 
+                                fileType.includes('word') || 
+                                fileType.includes('excel')
+                const previewUrl = material.fileUrl?.startsWith('http') 
+                  ? material.fileUrl 
+                  : `/api/materials/${material._id}/preview`
+
+                // Para PDFs
+                if (isPDF) {
+                  // Se preview estiver ativado, mostrar iframe
+                  if (showPdfPreview) {
+                    return (
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                        <div className="bg-gradient-to-r from-red-500 to-red-600 px-4 py-2 flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-white">
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                            <span className="font-semibold text-sm">PDF Preview</span>
+                          </div>
+                          <a
+                            href={previewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-white hover:bg-red-700 px-3 py-1 rounded text-sm font-medium transition-colors"
+                          >
+                            Abrir em Nova Janela
+                          </a>
+                        </div>
+                        <div className="bg-gray-100" style={{ minHeight: '600px' }}>
+                          <iframe
+                            src={`${previewUrl}#toolbar=0&navpanes=0&scrollbar=1`}
+                            className="w-full"
+                            style={{ height: '600px', border: 'none' }}
+                            title="PDF Preview"
+                          />
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Se preview não estiver ativado, mostrar botão
+                  return (
+                    <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                      <div className="bg-gradient-to-r from-red-500 to-red-600 px-4 py-3 flex items-center">
+                        <div className="flex items-center gap-3 text-white flex-1">
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                          </svg>
+                          <div>
+                            <span className="font-semibold text-sm block">PDF Document</span>
+                            <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white p-8">
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className="p-6 bg-red-100 rounded-2xl mb-6">
+                            <svg className="w-20 h-20 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">PDF Document</h3>
+                          <p className="text-gray-600 text-sm mb-4">
+                            {material.fileType} • {formatFileSize(material.fileSize)}
+                          </p>
+                          <p className="text-gray-500 text-sm text-center max-w-md mb-6">
+                            Podes ver uma pré-visualização do documento ou descarregá-lo para abrir com o teu leitor de PDF preferido.
+                          </p>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setShowPdfPreview(true)}
+                              className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+                            >
+                              <FiEye className="w-5 h-5" />
+                              <span>Ver Preview</span>
+                            </button>
+                            <button
+                              onClick={handleDownload}
+                              disabled={downloading || !user}
+                              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                              {downloading ? (
+                                <>
+                                  <FiLoader className="w-5 h-5 animate-spin" />
+                                  <span>A descarregar...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <FiDownload className="w-5 h-5" />
+                                  <span>Descarregar</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                // Para Imagens
+                if (isImage) {
+                  // Se preview estiver ativado, mostrar imagem
+                  if (showImagePreview) {
+                    return (
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                        <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-2 flex items-center">
+                          <div className="flex items-center gap-2 text-white">
+                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                            </svg>
+                            <span className="font-semibold text-sm">Image Preview</span>
+                          </div>
+                        </div>
+                        <div className="bg-gray-900 p-4 flex items-center justify-center" style={{ minHeight: '400px' }}>
+                          {!imagePreviewError ? (
+                            <img
+                              src={previewUrl}
+                              alt={material.title}
+                              className="max-w-full max-h-[600px] object-contain rounded-lg shadow-lg"
+                              onError={() => setImagePreviewError(true)}
+                              onLoad={() => setImagePreviewError(false)}
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center h-[400px] text-gray-400 flex-col gap-2">
+                              <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                              </svg>
+                              <p className="text-sm">Erro ao carregar imagem</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Se preview não estiver ativado, mostrar botão
+                  return (
+                    <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                      <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 flex items-center">
+                        <div className="flex items-center gap-3 text-white flex-1">
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                          </svg>
+                          <div>
+                            <span className="font-semibold text-sm block">Image</span>
+                            <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white p-8">
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className="p-6 bg-blue-100 rounded-2xl mb-6">
+                            <svg className="w-20 h-20 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">Image</h3>
+                          <p className="text-gray-600 text-sm mb-4">
+                            {material.fileType} • {formatFileSize(material.fileSize)}
+                          </p>
+                          <p className="text-gray-500 text-sm text-center max-w-md mb-6">
+                            Podes ver uma pré-visualização da imagem ou descarregá-la.
+                          </p>
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => setShowImagePreview(true)}
+                              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+                            >
+                              <FiEye className="w-5 h-5" />
+                              <span>Ver Preview</span>
+                            </button>
+                            <button
+                              onClick={handleDownload}
+                              disabled={downloading || !user}
+                              className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                              {downloading ? (
+                                <>
+                                  <FiLoader className="w-5 h-5 animate-spin" />
+                                  <span>A descarregar...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <FiDownload className="w-5 h-5" />
+                                  <span>Descarregar</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                // Para ficheiros Office (Word, PowerPoint, Excel)
+                // Nota: PowerPoint não pode ser visualizado diretamente no navegador sem software adicional
+                if (isOffice) {
+                  const isPowerPoint = fileExt === 'pptx' || fileExt === 'ppt'
+                  const isWord = fileExt === 'docx' || fileExt === 'doc'
+                  const isExcel = fileExt === 'xlsx' || fileExt === 'xls'
+                  const officeTypeName = isPowerPoint ? 'PowerPoint' : isWord ? 'Word' : isExcel ? 'Excel' : 'Documento'
+                  
+                  // Determinar classes de cor baseado no tipo
+                  let headerGradient = 'bg-gradient-to-r from-gray-500 to-gray-600'
+                  let iconBg = 'bg-gray-100'
+                  let iconColor = 'text-gray-600'
+                  
+                  if (isPowerPoint) {
+                    headerGradient = 'bg-gradient-to-r from-orange-500 to-orange-600'
+                    iconBg = 'bg-orange-100'
+                    iconColor = 'text-orange-600'
+                  } else if (isWord) {
+                    headerGradient = 'bg-gradient-to-r from-blue-500 to-blue-600'
+                    iconBg = 'bg-blue-100'
+                    iconColor = 'text-blue-600'
+                  } else if (isExcel) {
+                    headerGradient = 'bg-gradient-to-r from-green-500 to-green-600'
+                    iconBg = 'bg-green-100'
+                    iconColor = 'text-green-600'
+                  }
+                  
+                  // Para Word, mostrar preview se foi carregado
+                  if (isWord && showWordPreview && wordPreviewHtml) {
+                    return (
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                        <div className={`${headerGradient} px-4 py-3 flex items-center`}>
+                          <div className="flex items-center gap-3 text-white flex-1">
+                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                            <div>
+                              <span className="font-semibold text-sm block">Word Document Preview</span>
+                              <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-6 lg:p-8">
+                          <div 
+                            className="word-preview"
+                            dangerouslySetInnerHTML={{ __html: wordPreviewHtml }}
+                            style={{
+                              maxHeight: '600px',
+                              overflowY: 'auto',
+                              padding: '1.5rem',
+                              backgroundColor: '#fff',
+                              border: '1px solid #e5e7eb',
+                              borderRadius: '0.5rem',
+                              lineHeight: '1.6'
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Para Word, mostrar botão para carregar preview
+                  if (isWord && !showWordPreview) {
+                    return (
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                        <div className={`${headerGradient} px-4 py-3 flex items-center`}>
+                          <div className="flex items-center gap-3 text-white flex-1">
+                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                            <div>
+                              <span className="font-semibold text-sm block">Word Document</span>
+                              <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-8">
+                          <div className="flex flex-col items-center justify-center py-12">
+                            <div className={`p-6 ${iconBg} rounded-2xl mb-6`}>
+                              <svg className={`w-20 h-20 ${iconColor}`} fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">Word Document</h3>
+                            <p className="text-gray-600 text-sm mb-4">
+                              {material.fileType} • {formatFileSize(material.fileSize)}
+                            </p>
+                            <p className="text-gray-500 text-sm text-center max-w-md mb-6">
+                              Podes ver uma pré-visualização do documento ou descarregá-lo para abrir com o Microsoft Word.
+                            </p>
+                            <div className="flex gap-3">
+                              <button
+                                onClick={loadWordPreview}
+                                disabled={loadingWordPreview}
+                                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                              >
+                                {loadingWordPreview ? (
+                                  <>
+                                    <FiLoader className="w-5 h-5 animate-spin" />
+                                    <span>A carregar preview...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <FiEye className="w-5 h-5" />
+                                    <span>Ver Preview</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                onClick={handleDownload}
+                                disabled={downloading || !user}
+                                className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                              >
+                                {downloading ? (
+                                  <>
+                                    <FiLoader className="w-5 h-5 animate-spin" />
+                                    <span>A descarregar...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <FiDownload className="w-5 h-5" />
+                                    <span>Descarregar</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Para Word a carregar (enquanto mostra loading)
+                  if (isWord && showWordPreview && loadingWordPreview) {
+                    return (
+                      <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                        <div className={`${headerGradient} px-4 py-3 flex items-center`}>
+                          <div className="flex items-center gap-3 text-white flex-1">
+                            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                            <div>
+                              <span className="font-semibold text-sm block">Word Document</span>
+                              <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="bg-white p-8">
+                          <div className="flex flex-col items-center justify-center py-12">
+                            <div className="flex flex-col items-center gap-4">
+                              <FiLoader className="w-12 h-12 text-blue-600 animate-spin" />
+                              <p className="text-gray-600">A carregar preview...</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }
+                  
+                  // Para outros tipos Office (PowerPoint, Excel)
+                  return (
+                    <div className="rounded-xl border-2 border-gray-200 bg-gray-50 overflow-hidden mb-6">
+                      <div className={`${headerGradient} px-4 py-3 flex items-center`}>
+                        <div className="flex items-center gap-3 text-white flex-1">
+                          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                          </svg>
+                          <div>
+                            <span className="font-semibold text-sm block">{officeTypeName} Document</span>
+                            <span className="text-xs opacity-90 truncate max-w-md">{material.fileName}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white p-8">
+                        <div className="flex flex-col items-center justify-center py-12">
+                          <div className={`p-6 ${iconBg} rounded-2xl mb-6`}>
+                            <svg className={`w-20 h-20 ${iconColor}`} fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                            </svg>
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">{officeTypeName} {isPowerPoint ? 'Presentation' : isExcel ? 'Spreadsheet' : 'File'}</h3>
+                          <p className="text-gray-600 text-sm mb-4">
+                            {material.fileType} • {formatFileSize(material.fileSize)}
+                          </p>
+                          <p className="text-gray-500 text-sm text-center max-w-md mb-6">
+                            Para visualizar este ficheiro, descarrega-o e abre-o com o Microsoft {officeTypeName} 
+                            ou outro software compatível instalado no teu computador.
+                          </p>
+                          <button
+                            onClick={handleDownload}
+                            disabled={downloading || !user}
+                            className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                          >
+                            {downloading ? (
+                              <>
+                                <FiLoader className="w-5 h-5 animate-spin" />
+                                <span>A descarregar...</span>
+                              </>
+                            ) : (
+                              <>
+                                <FiDownload className="w-5 h-5" />
+                                <span>Descarregar Ficheiro</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
+                // Para outros tipos - mostrar informações detalhadas
+                const getFileIcon = () => {
+                  if (fileExt === 'zip' || fileExt === 'rar') {
+                    return (
+                      <svg className="w-16 h-16 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
+                      </svg>
+                    )
+                  }
+                  return (
+                    <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  )
+                }
+
+                return (
+                  <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-12 text-center mb-6 border-2 border-gray-200">
+                    {getFileIcon()}
+                    <p className="mt-4 text-gray-700 font-semibold text-lg">{material.fileName}</p>
+                    <p className="mt-2 text-gray-500 text-sm">
+                      {material.fileType} • {formatFileSize(material.fileSize)}
+                    </p>
+                    <p className="mt-6 text-gray-600 text-sm max-w-md mx-auto">
+                      Pré-visualização não disponível para este tipo de ficheiro. 
+                      Descarrega o ficheiro para visualizar o conteúdo completo.
+                    </p>
+                  </div>
+                )
+              })()}
 
               {material.description && (
                 <div className="border-t border-gray-200 pt-6">
@@ -817,8 +1400,9 @@ const MaterialDetailsPage = () => {
               </div>
 
               {material.comments && material.comments.length > 0 ? (
-                <div className="space-y-5 mb-6">
-                  {getSortedComments().map((commentItem, idx) => {
+                <>
+                  <div className="space-y-5 mb-6">
+                    {getPaginatedComments().map((commentItem, idx) => {
                     const userLiked = user && commentItem.likes?.some(likeId => likeId.toString() === user._id || (typeof likeId === 'object' && likeId._id?.toString() === user._id))
                     const userDisliked = user && commentItem.dislikes?.some(dislikeId => dislikeId.toString() === user._id || (typeof dislikeId === 'object' && dislikeId._id?.toString() === user._id))
                     const likesCount = commentItem.likes?.length || 0
@@ -894,7 +1478,73 @@ const MaterialDetailsPage = () => {
                       </div>
                     )
                   })}
-                </div>
+                  </div>
+
+                  {/* Paginação de Comentários */}
+                  {totalCommentPages > 1 && (
+                    <div className="mt-6 pt-6 border-t border-gray-200 flex flex-col items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setCommentPage(prev => Math.max(1, prev - 1))}
+                          disabled={commentPage === 1}
+                          className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 hover:shadow-sm transition-all font-medium bg-white text-sm"
+                        >
+                          <FiArrowUp className="w-4 h-4 rotate-[-90deg]" />
+                          <span>Anterior</span>
+                        </button>
+                        
+                        {/* Números das páginas */}
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: Math.min(5, totalCommentPages) }, (_, i) => {
+                            let pageNum;
+                            if (totalCommentPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (commentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (commentPage >= totalCommentPages - 2) {
+                              pageNum = totalCommentPages - 4 + i;
+                            } else {
+                              pageNum = commentPage - 2 + i;
+                            }
+                            
+                            return (
+                              <button
+                                key={pageNum}
+                                onClick={() => setCommentPage(pageNum)}
+                                className={`min-w-[36px] px-3 py-1.5 rounded-lg font-medium text-sm transition-all ${
+                                  commentPage === pageNum
+                                    ? 'bg-primary-600 text-white shadow-md'
+                                    : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:shadow-sm'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        
+                        <button
+                          onClick={() => setCommentPage(prev => Math.min(totalCommentPages, prev + 1))}
+                          disabled={commentPage === totalCommentPages}
+                          className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 hover:shadow-sm transition-all font-medium bg-white text-sm"
+                        >
+                          <span>Seguinte</span>
+                          <FiArrowDown className="w-4 h-4 rotate-[-90deg]" />
+                        </button>
+                      </div>
+                      
+                      <div className="text-xs text-gray-500">
+                        Página <span className="font-semibold text-gray-700">{commentPage}</span> de <span className="font-semibold text-gray-700">{totalCommentPages}</span>
+                        {' • '}
+                        A mostrar <span className="font-semibold text-gray-700">
+                          {((commentPage - 1) * commentsPerPage) + 1}
+                        </span> - <span className="font-semibold text-gray-700">
+                          {Math.min(commentPage * commentsPerPage, material.comments.length)}
+                        </span> de <span className="font-semibold text-gray-700">{material.comments.length}</span> comentários
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-8 text-gray-500 mb-6">
                   <FiMessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-300" />
@@ -1077,11 +1727,20 @@ const MaterialDetailsPage = () => {
               <h3 className="font-semibold text-gray-900 mb-4">Autor</h3>
               <div className="flex items-center gap-3">
                 <Avatar user={material.author} size="xl" />
-                <div>
+                <div className="flex-1">
                   <h4 className="font-semibold text-gray-900">{material.author?.name || 'Anónimo'}</h4>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {material.author?.materialsUploaded || 0} materiais partilhados
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-1">
+                      <FiStar className="w-4 h-4 text-yellow-500 fill-current" />
+                      <span className="text-sm font-medium text-gray-700">
+                        {material.author?.reputation ? material.author.reputation.toFixed(1) : '0.0'}
+                      </span>
+                    </div>
+                    <span className="text-gray-400">•</span>
+                    <p className="text-sm text-gray-600">
+                      {material.author?.materialsUploaded || 0} materiais
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1231,11 +1890,11 @@ const MaterialDetailsPage = () => {
                     className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     required
                   >
-                    <option value={1}>1º Ano</option>
-                    <option value={2}>2º Ano</option>
-                    <option value={3}>3º Ano</option>
-                    <option value={4}>4º Ano</option>
-                    <option value={5}>5º Ano</option>
+                    {availableYears.map((year) => (
+                      <option key={year.value} value={year.value}>
+                        {year.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -1245,14 +1904,14 @@ const MaterialDetailsPage = () => {
                   value={editFormData.materialType}
                   onChange={(e) => setEditFormData({ ...editFormData, materialType: e.target.value })}
                   className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  required
-                >
-                  <option value="Apontamento">Apontamento</option>
-                  <option value="Resumo">Resumo</option>
-                  <option value="Exercícios">Exercícios</option>
-                  <option value="Exame">Exame</option>
-                  <option value="Slides">Slides</option>
-                </select>
+                    required
+                  >
+                    {materialTypes.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label}
+                      </option>
+                    ))}
+                  </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Curso</label>
@@ -1284,6 +1943,17 @@ const MaterialDetailsPage = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm || (() => {})}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        confirmText="Eliminar"
+      />
     </div>
   )
 }

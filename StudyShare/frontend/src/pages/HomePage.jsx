@@ -7,6 +7,7 @@ import Sidebar from '../components/Sidebar'
 import MaterialCard from '../components/MaterialCard'
 import NotificationBell from '../components/NotificationBell'
 import Avatar from '../components/Avatar'
+import ConfirmModal from '../components/ConfirmModal'
 import { 
   FiSearch, 
   FiUser, 
@@ -25,6 +26,13 @@ const HomePage = () => {
   const [materials, setMaterials] = useState([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState(null)
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'danger'
+  })
   const isAdmin = user?.role === 'Administrador'
   const [filters, setFilters] = useState({
     search: '',
@@ -36,7 +44,7 @@ const HomePage = () => {
   })
   const [pagination, setPagination] = useState({
     page: 1,
-    limit: 20,
+    limit: 8,
     total: 0,
     pages: 0
   })
@@ -80,24 +88,28 @@ const HomePage = () => {
     fetchMaterials()
   }
 
-  const handleDelete = async (materialId) => {
-    if (!window.confirm('Tens a certeza que queres eliminar este material? Esta ação não pode ser desfeita.')) {
-      return
-    }
-
-    setDeletingId(materialId)
-    try {
-      await api.delete(`/materials/${materialId}`)
-      // Remover material da lista
-      setMaterials(prev => prev.filter(m => m._id !== materialId))
-      // Atualizar paginação se necessário
-      setPagination(prev => ({ ...prev, total: prev.total - 1 }))
-      success('Material eliminado com sucesso')
-    } catch (error) {
-      showError(error.response?.data?.message || 'Erro ao eliminar material')
-    } finally {
-      setDeletingId(null)
-    }
+  const handleDelete = (materialId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Material',
+      message: 'Tens a certeza que queres eliminar este material? Esta ação não pode ser desfeita.',
+      type: 'danger',
+      onConfirm: async () => {
+        setDeletingId(materialId)
+        try {
+          await api.delete(`/materials/${materialId}`)
+          // Remover material da lista
+          setMaterials(prev => prev.filter(m => m._id !== materialId))
+          // Atualizar paginação se necessário
+          setPagination(prev => ({ ...prev, total: prev.total - 1 }))
+          success('Material eliminado com sucesso')
+        } catch (error) {
+          showError(error.response?.data?.message || 'Erro ao eliminar material')
+        } finally {
+          setDeletingId(null)
+        }
+      }
+    })
   }
 
   return (
@@ -241,31 +253,80 @@ const HomePage = () => {
 
             {/* Pagination */}
             {pagination.pages > 1 && (
-              <div className="mt-8 flex justify-center items-center gap-3">
-                <button
-                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
-                  disabled={pagination.page === 1}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white hover:shadow-md transition-all font-medium"
-                >
-                  <FiArrowUp className="w-4 h-4 rotate-[-90deg]" />
-                  <span>Anterior</span>
-                </button>
-                <div className="px-6 py-2 bg-white rounded-lg border border-gray-200 shadow-sm font-medium">
-                  Página <span className="text-primary-600 font-semibold">{pagination.page}</span> de <span className="text-primary-600 font-semibold">{pagination.pages}</span>
+              <div className="mt-8 flex flex-col items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
+                    disabled={pagination.page === 1}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white hover:shadow-md transition-all font-medium bg-white"
+                  >
+                    <FiArrowUp className="w-4 h-4 rotate-[-90deg]" />
+                    <span>Anterior</span>
+                  </button>
+                  
+                  {/* Números das páginas */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
+                      let pageNum;
+                      if (pagination.pages <= 5) {
+                        pageNum = i + 1;
+                      } else if (pagination.page <= 3) {
+                        pageNum = i + 1;
+                      } else if (pagination.page >= pagination.pages - 2) {
+                        pageNum = pagination.pages - 4 + i;
+                      } else {
+                        pageNum = pagination.page - 2 + i;
+                      }
+                      
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPagination(prev => ({ ...prev, page: pageNum }))}
+                          className={`min-w-[40px] px-3 py-2 rounded-lg font-medium transition-all ${
+                            pagination.page === pageNum
+                              ? 'bg-primary-600 text-white shadow-md'
+                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:shadow-sm'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  
+                  <button
+                    onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
+                    disabled={pagination.page === pagination.pages}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white hover:shadow-md transition-all font-medium bg-white"
+                  >
+                    <span>Seguinte</span>
+                    <FiArrowDown className="w-4 h-4 rotate-[-90deg]" />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
-                  disabled={pagination.page === pagination.pages}
-                  className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-white hover:shadow-md transition-all font-medium"
-                >
-                  <span>Seguinte</span>
-                  <FiArrowDown className="w-4 h-4 rotate-[-90deg]" />
-                </button>
+                
+                <div className="text-sm text-gray-600">
+                  A mostrar <span className="font-semibold text-gray-900">
+                    {((pagination.page - 1) * pagination.limit) + 1}
+                  </span> - <span className="font-semibold text-gray-900">
+                    {Math.min(pagination.page * pagination.limit, pagination.total)}
+                  </span> de <span className="font-semibold text-gray-900">{pagination.total}</span> materiais
+                </div>
               </div>
             )}
           </>
         )}
       </main>
+
+      {/* Modal de Confirmação */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm || (() => {})}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        confirmText="Eliminar"
+      />
     </div>
   )
 }

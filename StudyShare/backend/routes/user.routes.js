@@ -1,4 +1,5 @@
 import express from 'express';
+import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import Material from '../models/Material.model.js';
 import { authMiddleware, adminOnly } from '../middleware/auth.middleware.js';
@@ -157,6 +158,101 @@ router.post('/me/reputation/recalculate', authMiddleware, async (req, res) => {
     console.error('Erro ao recalcular reputação:', error);
     res.status(500).json({
       message: 'Erro ao recalcular reputação'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/users/me/notification-preferences
+ * @desc    Obter preferências de notificações do utilizador autenticado
+ * @access  Private
+ */
+router.get('/me/notification-preferences', authMiddleware, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('notificationPreferences role');
+    
+    if (!user) {
+      return res.status(404).json({
+        message: 'Utilizador não encontrado'
+      });
+    }
+
+    res.json({
+      preferences: user.notificationPreferences || {
+        rating: true,
+        commentOnMyMaterial: true,
+        commentOnFavorite: true,
+        report: true
+      },
+      role: user.role
+    });
+  } catch (error) {
+    console.error('Erro ao obter preferências de notificações:', error);
+    res.status(500).json({
+      message: 'Erro ao buscar preferências de notificações'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/users/me/notification-preferences
+ * @desc    Atualizar preferências de notificações do utilizador autenticado
+ * @access  Private
+ */
+router.put('/me/notification-preferences', [
+  authMiddleware,
+  body('rating').optional().isBoolean(),
+  body('commentOnMyMaterial').optional().isBoolean(),
+  body('commentOnFavorite').optional().isBoolean(),
+  body('report').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+
+    const user = await User.findById(req.user._id);
+    
+    if (!user) {
+      return res.status(404).json({
+        message: 'Utilizador não encontrado'
+      });
+    }
+
+    // Atualizar apenas as preferências fornecidas
+    const updates = {};
+    if (req.body.rating !== undefined) {
+      updates['notificationPreferences.rating'] = req.body.rating;
+    }
+    if (req.body.commentOnMyMaterial !== undefined) {
+      updates['notificationPreferences.commentOnMyMaterial'] = req.body.commentOnMyMaterial;
+    }
+    if (req.body.commentOnFavorite !== undefined) {
+      updates['notificationPreferences.commentOnFavorite'] = req.body.commentOnFavorite;
+    }
+    // Apenas admins podem atualizar preferências de report
+    if (req.body.report !== undefined && user.role === 'Administrador') {
+      updates['notificationPreferences.report'] = req.body.report;
+    }
+
+    await User.findByIdAndUpdate(req.user._id, { $set: updates });
+
+    // Buscar utilizador atualizado
+    const updatedUser = await User.findById(req.user._id).select('notificationPreferences role');
+
+    res.json({
+      message: 'Preferências de notificações atualizadas com sucesso',
+      preferences: updatedUser.notificationPreferences,
+      role: updatedUser.role
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar preferências de notificações:', error);
+    res.status(500).json({
+      message: 'Erro ao atualizar preferências de notificações'
     });
   }
 });

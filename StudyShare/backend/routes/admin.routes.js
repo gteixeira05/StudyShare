@@ -2,6 +2,7 @@ import express from 'express';
 import { body, validationResult } from 'express-validator';
 import Material from '../models/Material.model.js';
 import User from '../models/User.model.js';
+import SystemConfig from '../models/SystemConfig.model.js';
 import { authMiddleware, adminOnly } from '../middleware/auth.middleware.js';
 import path from 'path';
 import fs from 'fs';
@@ -349,10 +350,45 @@ router.get('/stats', authMiddleware, adminOnly, async (req, res) => {
       isActive: true, 
       isApproved: true 
     });
-    const totalReports = await Material.aggregate([
+    
+    // Contar reports de materiais
+    const materialReports = await Material.aggregate([
       { $project: { reportCount: { $size: '$reports' } } },
       { $group: { _id: null, total: { $sum: '$reportCount' } } }
     ]);
+    const materialReportsCount = materialReports[0]?.total || 0;
+    
+    // Contar reports de comentários
+    const commentReports = await Material.aggregate([
+      { $unwind: '$comments' },
+      { $project: { commentReportCount: { $size: { $ifNull: ['$comments.reports', []] } } } },
+      { $group: { _id: null, total: { $sum: '$commentReportCount' } } }
+    ]);
+    const commentReportsCount = commentReports[0]?.total || 0;
+    
+    // Total de reports (materiais + comentários)
+    const totalReports = materialReportsCount + commentReportsCount;
+    
+    // Contar reports pendentes de materiais (apenas em materiais ativos)
+    const pendingMaterialReports = await Material.aggregate([
+      { $match: { isActive: true, 'reports.0': { $exists: true } } },
+      { $project: { reportCount: { $size: '$reports' } } },
+      { $group: { _id: null, total: { $sum: '$reportCount' } } }
+    ]);
+    const pendingMaterialReportsCount = pendingMaterialReports[0]?.total || 0;
+    
+    // Contar reports pendentes de comentários (apenas em materiais ativos)
+    const pendingCommentReports = await Material.aggregate([
+      { $match: { isActive: true, 'comments.reports.0': { $exists: true } } },
+      { $unwind: '$comments' },
+      { $match: { 'comments.reports.0': { $exists: true } } },
+      { $project: { commentReportCount: { $size: { $ifNull: ['$comments.reports', []] } } } },
+      { $group: { _id: null, total: { $sum: '$commentReportCount' } } }
+    ]);
+    const pendingCommentReportsCount = pendingCommentReports[0]?.total || 0;
+    
+    // Total de reports pendentes (materiais + comentários)
+    const pendingReports = pendingMaterialReportsCount + pendingCommentReportsCount;
 
     res.json({
       stats: {
@@ -360,17 +396,346 @@ router.get('/stats', authMiddleware, adminOnly, async (req, res) => {
         totalAdmins,
         totalStudents: totalUsers - totalAdmins,
         totalMaterials,
-        totalReports: totalReports[0]?.total || 0,
-        pendingReports: await Material.countDocuments({ 
-          'reports.0': { $exists: true },
-          isActive: true 
-        })
+        totalReports,
+        pendingReports: pendingReports
       }
     });
   } catch (error) {
     console.error('Erro ao obter estatísticas:', error);
     res.status(500).json({
       message: 'Erro ao obter estatísticas'
+    });
+  }
+});
+
+/**
+ * @route   GET /api/admin/config/:key
+ * @desc    Obter configuração do sistema (anos ou tipos de material)
+ * @access  Private (Admin only)
+ */
+router.get('/config/:key', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { key } = req.params;
+    
+    if (!['availableYears', 'materialTypes'].includes(key)) {
+      return res.status(400).json({
+        message: 'Chave de configuração inválida'
+      });
+    }
+
+    let config = await SystemConfig.findOne({ key });
+    
+    // Se não existir, criar com valores padrão
+    if (!config) {
+      if (key === 'availableYears') {
+        config = new SystemConfig({
+          key: 'availableYears',
+          values: [
+            { value: 1, label: '1º Ano', order: 1, isActive: true },
+            { value: 2, label: '2º Ano', order: 2, isActive: true },
+            { value: 3, label: '3º Ano', order: 3, isActive: true },
+            { value: 4, label: '4º Ano', order: 4, isActive: true },
+            { value: 5, label: '5º Ano', order: 5, isActive: true }
+          ],
+          updatedBy: req.user._id
+        });
+      } else if (key === 'materialTypes') {
+        config = new SystemConfig({
+          key: 'materialTypes',
+          values: [
+            { value: 'Apontamento', label: 'Apontamento', order: 1, isActive: true },
+            { value: 'Resumo', label: 'Resumo', order: 2, isActive: true },
+            { value: 'Exercícios', label: 'Exercícios', order: 3, isActive: true },
+            { value: 'Exame', label: 'Exame', order: 4, isActive: true },
+            { value: 'Slides', label: 'Slides', order: 5, isActive: true }
+          ],
+          updatedBy: req.user._id
+        });
+      }
+      await config.save();
+    }
+
+    // Filtrar apenas valores ativos e ordenar
+    const activeValues = config.values
+      .filter(v => v.isActive)
+      .sort((a, b) => a.order - b.order);
+
+    res.json({
+      key: config.key,
+      values: activeValues,
+      allValues: config.values.sort((a, b) => a.order - b.order)
+    });
+  } catch (error) {
+    console.error('Erro ao obter configuração:', error);
+    res.status(500).json({
+      message: 'Erro ao buscar configuração'
+    });
+  }
+});
+
+/**
+ * @route   POST /api/admin/config/:key/values
+ * @desc    Adicionar novo valor à configuração
+ * @access  Private (Admin only)
+ */
+router.post('/config/:key/values', [
+  authMiddleware,
+  adminOnly,
+  body('value').notEmpty().withMessage('Valor é obrigatório'),
+  body('label').trim().notEmpty().withMessage('Label é obrigatório')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+
+    const { key } = req.params;
+    const { value, label, order } = req.body;
+
+    if (!['availableYears', 'materialTypes'].includes(key)) {
+      return res.status(400).json({
+        message: 'Chave de configuração inválida'
+      });
+    }
+
+    let config = await SystemConfig.findOne({ key });
+    
+    // Criar se não existir
+    if (!config) {
+      config = new SystemConfig({
+        key,
+        values: [],
+        updatedBy: req.user._id
+      });
+    }
+
+    // Verificar se já existe
+    const exists = config.values.some(
+      v => (key === 'availableYears' ? v.value === parseInt(value) : v.value === value)
+    );
+
+    if (exists) {
+      return res.status(400).json({
+        message: 'Este valor já existe'
+      });
+    }
+
+    // Adicionar novo valor
+    const newOrder = order || (config.values.length > 0 
+      ? Math.max(...config.values.map(v => v.order)) + 1 
+      : 1);
+
+    config.values.push({
+      value: key === 'availableYears' ? parseInt(value) : value,
+      label: label.trim(),
+      order: newOrder,
+      isActive: true
+    });
+
+    config.updatedBy = req.user._id;
+    await config.save();
+
+    res.json({
+      message: 'Valor adicionado com sucesso',
+      config: {
+        key: config.key,
+        values: config.values.sort((a, b) => a.order - b.order)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao adicionar valor:', error);
+    res.status(500).json({
+      message: 'Erro ao adicionar valor'
+    });
+  }
+});
+
+/**
+ * @route   PUT /api/admin/config/:key/values/:valueId
+ * @desc    Atualizar valor da configuração
+ * @access  Private (Admin only)
+ */
+router.put('/config/:key/values/:valueId', [
+  authMiddleware,
+  adminOnly,
+  body('label').optional().trim().notEmpty().withMessage('Label não pode estar vazio'),
+  body('order').optional().isInt({ min: 0 }),
+  body('isActive').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: 'Dados inválidos',
+        errors: errors.array()
+      });
+    }
+
+    const { key, valueId } = req.params;
+    const { label, order, isActive } = req.body;
+
+    if (!['availableYears', 'materialTypes'].includes(key)) {
+      return res.status(400).json({
+        message: 'Chave de configuração inválida'
+      });
+    }
+
+    const config = await SystemConfig.findOne({ key });
+    if (!config) {
+      return res.status(404).json({
+        message: 'Configuração não encontrada'
+      });
+    }
+
+    const valueIndex = config.values.findIndex(v => v._id.toString() === valueId);
+    if (valueIndex === -1) {
+      return res.status(404).json({
+        message: 'Valor não encontrado'
+      });
+    }
+
+    // Atualizar campos
+    if (label !== undefined) config.values[valueIndex].label = label.trim();
+    if (order !== undefined) config.values[valueIndex].order = order;
+    if (isActive !== undefined) config.values[valueIndex].isActive = isActive;
+
+    config.updatedBy = req.user._id;
+    await config.save();
+
+    res.json({
+      message: 'Valor atualizado com sucesso',
+      config: {
+        key: config.key,
+        values: config.values.sort((a, b) => a.order - b.order)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao atualizar valor:', error);
+    res.status(500).json({
+      message: 'Erro ao atualizar valor'
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/config/:key/values/:valueId
+ * @desc    Remover valor da configuração (desativar em vez de remover)
+ * @access  Private (Admin only)
+ */
+router.delete('/config/:key/values/:valueId', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { key, valueId } = req.params;
+
+    if (!['availableYears', 'materialTypes'].includes(key)) {
+      return res.status(400).json({
+        message: 'Chave de configuração inválida'
+      });
+    }
+
+    const config = await SystemConfig.findOne({ key });
+    if (!config) {
+      return res.status(404).json({
+        message: 'Configuração não encontrada'
+      });
+    }
+
+    const valueIndex = config.values.findIndex(v => v._id.toString() === valueId);
+    if (valueIndex === -1) {
+      return res.status(404).json({
+        message: 'Valor não encontrado'
+      });
+    }
+
+    // Desativar em vez de remover (para manter histórico)
+    config.values[valueIndex].isActive = false;
+    config.updatedBy = req.user._id;
+    await config.save();
+
+    res.json({
+      message: 'Valor desativado com sucesso',
+      config: {
+        key: config.key,
+        values: config.values.sort((a, b) => a.order - b.order)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao remover valor:', error);
+    res.status(500).json({
+      message: 'Erro ao remover valor'
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/config/:key/values/:valueId/permanent
+ * @desc    Eliminar permanentemente valor da configuração (apenas se não houver materiais usando)
+ * @access  Private (Admin only)
+ */
+router.delete('/config/:key/values/:valueId/permanent', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    const { key, valueId } = req.params;
+
+    if (!['availableYears', 'materialTypes'].includes(key)) {
+      return res.status(400).json({
+        message: 'Chave de configuração inválida'
+      });
+    }
+
+    const config = await SystemConfig.findOne({ key });
+    if (!config) {
+      return res.status(404).json({
+        message: 'Configuração não encontrada'
+      });
+    }
+
+    const valueObj = config.values.find(v => v._id.toString() === valueId);
+    if (!valueObj) {
+      return res.status(404).json({
+        message: 'Valor não encontrado'
+      });
+    }
+
+    // Verificar se existem materiais usando este valor
+    let materialsUsingValue = 0;
+    if (key === 'availableYears') {
+      materialsUsingValue = await Material.countDocuments({
+        year: valueObj.value,
+        isActive: true
+      });
+    } else if (key === 'materialTypes') {
+      materialsUsingValue = await Material.countDocuments({
+        materialType: valueObj.value,
+        isActive: true
+      });
+    }
+
+    if (materialsUsingValue > 0) {
+      return res.status(400).json({
+        message: `Não é possível eliminar este valor. Existem ${materialsUsingValue} material(is) a usar este ${key === 'availableYears' ? 'ano' : 'tipo'}.`,
+        materialsCount: materialsUsingValue
+      });
+    }
+
+    // Remover permanentemente
+    config.values = config.values.filter(v => v._id.toString() !== valueId);
+    config.updatedBy = req.user._id;
+    await config.save();
+
+    res.json({
+      message: 'Valor eliminado permanentemente com sucesso',
+      config: {
+        key: config.key,
+        values: config.values.sort((a, b) => a.order - b.order)
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao eliminar valor permanentemente:', error);
+    res.status(500).json({
+      message: 'Erro ao eliminar valor'
     });
   }
 });

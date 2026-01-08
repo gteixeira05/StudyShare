@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import api from '../services/api'
 import { 
   FiHome, 
   FiUpload, 
@@ -15,6 +17,39 @@ const Sidebar = ({ filters, onFilterChange }) => {
   const { isAuthenticated, user } = useAuth()
   const navigate = useNavigate()
   const isAdmin = user?.role === 'Administrador'
+  const [availableYears, setAvailableYears] = useState([])
+  const [materialTypes, setMaterialTypes] = useState([])
+
+  useEffect(() => {
+    const fetchConfigs = async () => {
+      try {
+        const [yearsRes, typesRes] = await Promise.all([
+          api.get('/config/availableYears'),
+          api.get('/config/materialTypes')
+        ])
+        setAvailableYears(yearsRes.data.values || [])
+        setMaterialTypes(typesRes.data.values || [])
+      } catch (error) {
+        console.error('Erro ao buscar configurações:', error)
+        // Fallback para valores padrão
+        setAvailableYears([
+          { value: 1, label: '1º Ano' },
+          { value: 2, label: '2º Ano' },
+          { value: 3, label: '3º Ano' },
+          { value: 4, label: '4º Ano' },
+          { value: 5, label: '5º Ano' }
+        ])
+        setMaterialTypes([
+          { value: 'Apontamento', label: 'Apontamento' },
+          { value: 'Resumo', label: 'Resumo' },
+          { value: 'Exercícios', label: 'Exercícios' },
+          { value: 'Exame', label: 'Exame' },
+          { value: 'Slides', label: 'Slides' }
+        ])
+      }
+    }
+    fetchConfigs()
+  }, [])
 
   return (
     <aside className="w-72 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white p-6 shadow-2xl min-h-screen flex flex-col border-r border-slate-700">
@@ -76,11 +111,11 @@ const Sidebar = ({ filters, onFilterChange }) => {
               className="w-full bg-slate-700/50 hover:bg-slate-700 text-white px-4 py-2.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
             >
               <option value="">Todos os anos</option>
-              <option value="1">1º Ano</option>
-              <option value="2">2º Ano</option>
-              <option value="3">3º Ano</option>
-              <option value="4">4º Ano</option>
-              <option value="5">5º Ano</option>
+              {availableYears.map((year) => (
+                <option key={year.value} value={year.value}>
+                  {year.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -121,11 +156,11 @@ const Sidebar = ({ filters, onFilterChange }) => {
               className="w-full bg-slate-700/50 hover:bg-slate-700 text-white px-4 py-2.5 rounded-lg border border-slate-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all"
             >
               <option value="">Todos os tipos</option>
-              <option value="Apontamento">Apontamento</option>
-              <option value="Resumo">Resumo</option>
-              <option value="Exercícios">Exercícios</option>
-              <option value="Exame">Exame</option>
-              <option value="Slides">Slides</option>
+              {materialTypes.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
             </select>
           </div>
         </div>

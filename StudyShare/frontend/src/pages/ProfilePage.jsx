@@ -6,7 +6,8 @@ import api from '../services/api'
 import Sidebar from '../components/Sidebar'
 import MaterialCard from '../components/MaterialCard'
 import Avatar from '../components/Avatar'
-import { FiCamera, FiLock, FiX, FiLoader, FiCheck, FiArrowLeft } from 'react-icons/fi'
+import ConfirmModal from '../components/ConfirmModal'
+import { FiCamera, FiLock, FiX, FiLoader, FiCheck, FiArrowLeft, FiBell, FiStar, FiMessageCircle, FiFlag, FiHeart, FiAlertCircle } from 'react-icons/fi'
 
 const ProfilePage = () => {
   const { user, logout, loadUser } = useAuth()
@@ -24,6 +25,21 @@ const ProfilePage = () => {
     newPassword: '',
     confirmPassword: ''
   })
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'danger'
+  })
+  const [notificationPreferences, setNotificationPreferences] = useState({
+    rating: true,
+    commentOnMyMaterial: true,
+    commentOnFavorite: true,
+    report: true
+  })
+  const [loadingPreferences, setLoadingPreferences] = useState(false)
+  const [savingPreferences, setSavingPreferences] = useState(false)
   const fileInputRef = useRef(null)
 
   const fetchMyMaterials = async () => {
@@ -40,28 +56,73 @@ const ProfilePage = () => {
 
   useEffect(() => {
     fetchMyMaterials()
+    fetchNotificationPreferences()
   }, [])
 
-  const handleDeleteMaterial = async (materialId) => {
-    if (!window.confirm('Tens a certeza que queres apagar este material? Esta ação não pode ser desfeita.')) {
-      return
-    }
-
+  const fetchNotificationPreferences = async () => {
     try {
-      setDeleting(materialId)
-      await api.delete(`/materials/${materialId}`)
-      // Remover material da lista
-      setMaterials(prev => prev.filter(m => m._id !== materialId))
-      // Recarregar dados do utilizador para atualizar contador
-      if (loadUser) {
-        await loadUser()
-      }
+      setLoadingPreferences(true)
+      const response = await api.get('/users/me/notification-preferences')
+      setNotificationPreferences(response.data.preferences || {
+        rating: true,
+        commentOnMyMaterial: true,
+        commentOnFavorite: true,
+        report: true
+      })
     } catch (error) {
-      console.error('Erro ao apagar material:', error)
-      showError(error.response?.data?.message || 'Erro ao apagar material')
+      console.error('Erro ao buscar preferências de notificações:', error)
     } finally {
-      setDeleting(null)
+      setLoadingPreferences(false)
     }
+  }
+
+  const handleTogglePreference = async (preferenceKey) => {
+    try {
+      setSavingPreferences(true)
+      const newValue = !notificationPreferences[preferenceKey]
+      const updatedPreferences = {
+        ...notificationPreferences,
+        [preferenceKey]: newValue
+      }
+      
+      await api.put('/users/me/notification-preferences', {
+        [preferenceKey]: newValue
+      })
+      
+      setNotificationPreferences(updatedPreferences)
+      success(`Preferência de notificação ${newValue ? 'ativada' : 'desativada'} com sucesso`)
+    } catch (error) {
+      console.error('Erro ao atualizar preferência:', error)
+      showError(error.response?.data?.message || 'Erro ao atualizar preferência')
+    } finally {
+      setSavingPreferences(false)
+    }
+  }
+
+  const handleDeleteMaterial = (materialId) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Eliminar Material',
+      message: 'Tens a certeza que queres apagar este material? Esta ação não pode ser desfeita.',
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          setDeleting(materialId)
+          await api.delete(`/materials/${materialId}`)
+          // Remover material da lista
+          setMaterials(prev => prev.filter(m => m._id !== materialId))
+          // Recarregar dados do utilizador para atualizar contador
+          if (loadUser) {
+            await loadUser()
+          }
+        } catch (error) {
+          console.error('Erro ao apagar material:', error)
+          showError(error.response?.data?.message || 'Erro ao apagar material')
+        } finally {
+          setDeleting(null)
+        }
+      }
+    })
   }
 
   const handleAvatarUpload = async (e) => {
@@ -260,6 +321,133 @@ const ProfilePage = () => {
                 <div className="text-sm text-gray-600">Reputação (estrelas)</div>
               </div>
             </div>
+          </div>
+
+          {/* Notification Preferences */}
+          <div className="card p-8 lg:p-10 mb-10">
+            <div className="flex items-center gap-4 mb-8 pb-6 border-b border-gray-200">
+              <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg">
+                <FiBell className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Preferências de Notificações</h2>
+                <p className="text-sm text-gray-500 mt-1">Escolhe que tipos de notificações queres receber</p>
+              </div>
+            </div>
+
+            {loadingPreferences ? (
+              <div className="flex items-center justify-center py-12">
+                <FiLoader className="w-6 h-6 animate-spin text-blue-600" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Rating Notifications */}
+                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-white to-gray-50 rounded-xl border border-gray-200 hover:border-yellow-300 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-gradient-to-br from-yellow-400 to-yellow-500 rounded-xl shadow-sm">
+                      <FiStar className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-1">Avaliações nos Meus Materiais</h3>
+                      <p className="text-sm text-gray-600">Receber notificações quando alguém avalia um dos teus materiais</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleTogglePreference('rating')}
+                    disabled={savingPreferences}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      notificationPreferences.rating ? 'bg-blue-600' : 'bg-gray-300'
+                    } ${savingPreferences ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        notificationPreferences.rating ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Comment on My Material Notifications */}
+                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-white to-gray-50 rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-sm">
+                      <FiMessageCircle className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-1">Comentários nos Meus Materiais</h3>
+                      <p className="text-sm text-gray-600">Receber notificações quando alguém comenta num dos teus materiais</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleTogglePreference('commentOnMyMaterial')}
+                    disabled={savingPreferences}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      notificationPreferences.commentOnMyMaterial ? 'bg-blue-600' : 'bg-gray-300'
+                    } ${savingPreferences ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        notificationPreferences.commentOnMyMaterial ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Comment on Favorite Notifications */}
+                <div className="flex items-center justify-between p-5 bg-gradient-to-r from-white to-gray-50 rounded-xl border border-gray-200 hover:border-pink-300 hover:shadow-md transition-all duration-200">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-gradient-to-br from-pink-500 to-rose-500 rounded-xl shadow-sm">
+                      <FiHeart className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 mb-1">Comentários em Favoritos</h3>
+                      <p className="text-sm text-gray-600">Receber notificações quando alguém comenta num material dos teus favoritos</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleTogglePreference('commentOnFavorite')}
+                    disabled={savingPreferences}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      notificationPreferences.commentOnFavorite ? 'bg-blue-600' : 'bg-gray-300'
+                    } ${savingPreferences ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        notificationPreferences.commentOnFavorite ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Report Notifications (Only for Admins) */}
+                {user?.role === 'Administrador' && (
+                  <div className="flex items-center justify-between p-5 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border-2 border-red-200 hover:border-red-400 hover:shadow-lg transition-all duration-200">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-sm">
+                        <FiAlertCircle className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900 mb-1">Reports</h3>
+                        <p className="text-sm text-gray-600">Receber notificações quando há novos reports para analisar</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleTogglePreference('report')}
+                      disabled={savingPreferences}
+                      className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                        notificationPreferences.report ? 'bg-blue-600' : 'bg-gray-300'
+                      } ${savingPreferences ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          notificationPreferences.report ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* My Materials */}
@@ -530,6 +718,17 @@ const ProfilePage = () => {
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm || (() => {})}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        type={confirmModal.type}
+        confirmText="Eliminar"
+      />
     </div>
   )
 }
