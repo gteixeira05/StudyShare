@@ -357,8 +357,8 @@ const MaterialDetailsPage = () => {
         // Se for URL local (não externa), adicionar base URL do backend
         let downloadUrl = fileUrl
         if (!isExternal && !fileUrl.startsWith('http')) {
-          // URL local - usar URL completa do backend
-          const backendUrl = 'http://localhost:5000'
+          // URL local - usar URL completa do backend (apenas em desenvolvimento)
+          const backendUrl = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '')
           downloadUrl = fileUrl.startsWith('/') 
             ? `${backendUrl}${fileUrl}` 
             : `${backendUrl}/${fileUrl}`

@@ -2,15 +2,15 @@
   "name": "studyshare",
   "version": "1.0.0",
   "description": "Plataforma de partilha de materiais académicos",
-  "main": "backend/server.js",
+  "main": "server.js",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "server": "nodemon backend/server.js",
-    "start": "node backend/server.js",
+    "server": "nodemon server.js",
+    "start": "node server.js",
     "client": "cd frontend && npm run dev",
     "install-all": "npm install && cd frontend && npm install",
-    "seed:admin": "node backend/utils/seed.js"
+    "seed:admin": "node utils/seed.js"
   },
   "keywords": [
     "study",
