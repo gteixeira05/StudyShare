@@ -45,8 +45,10 @@ const io = new Server(httpServer, {
 const getAllowedOrigins = () => {
   if (process.env.NODE_ENV === 'production') {
     // Em produção, usar CLIENT_URL (pode ser múltiplas URLs separadas por vírgula)
-    const clientUrls = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map(url => url.trim()) : [];
-    return clientUrls.length > 0 ? clientUrls : [];
+    const clientUrls = process.env.CLIENT_URL 
+      ? process.env.CLIENT_URL.split(',').map(url => url.trim().replace(/\/$/, '')) // Remove trailing slash
+      : [];
+    return clientUrls;
   }
   // Em desenvolvimento, permitir localhost e IPs locais
   return [
@@ -64,23 +66,32 @@ app.use(cors({
     // Permitir requisições sem origin (mobile apps, Postman, etc)
     if (!origin) return callback(null, true);
     
-    // Verificar se a origem está permitida
+    // Em desenvolvimento, permitir todas as origens locais
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    
+    // Em produção, verificar se a origem está permitida
     const isAllowed = allowedOrigins.some(allowedOrigin => {
       if (typeof allowedOrigin === 'string') {
-        return origin === allowedOrigin;
+        // Comparar sem trailing slash
+        const originClean = origin.replace(/\/$/, '');
+        return originClean === allowedOrigin;
       } else if (allowedOrigin instanceof RegExp) {
         return allowedOrigin.test(origin);
       }
       return false;
     });
     
-    if (isAllowed || process.env.NODE_ENV !== 'production') {
+    if (isAllowed) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
