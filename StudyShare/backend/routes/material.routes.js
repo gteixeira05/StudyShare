@@ -10,6 +10,7 @@ import SystemConfig from '../models/SystemConfig.model.js';
 import { authMiddleware, optionalAuth } from '../middleware/auth.middleware.js';
 import { notifyNewComment, notifyNewRating, emitNewComment, emitRatingUpdate, notifyAdminsNewReport } from '../utils/notifications.js';
 import { updateMaterialAuthorReputation, recalculateUserReputation } from '../utils/reputation.js';
+import { uploadBufferToCloudinary, deleteFromCloudinary } from '../utils/cloudinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,23 +53,8 @@ const validateMaterialType = async (materialType) => {
   }
 };
 
-// Configurar multer para upload de ficheiros
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadsDir = path.join(__dirname, '..', 'uploads');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    // Gerar nome único: timestamp + nome original
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const name = path.basename(file.originalname, ext);
-    cb(null, `${name}-${uniqueSuffix}${ext}`);
-  }
-});
+// Configurar multer para upload de ficheiros em memória (para Cloudinary)
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
@@ -328,10 +314,6 @@ router.post('/', [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      // Se houver erros de validação e um ficheiro foi enviado, removê-lo
-      if (req.file) {
-        fs.unlinkSync(req.file.path);
-      }
       return res.status(400).json({
         message: 'Dados inválidos',
         errors: errors.array()
@@ -345,6 +327,17 @@ router.post('/', [
       });
     }
 
+    // Determinar resource_type baseado no tipo de ficheiro
+    const imageExtensions = /\.(jpg|jpeg|png)$/i;
+    const resourceType = imageExtensions.test(req.file.originalname) ? 'image' : 'raw';
+
+    // Upload para Cloudinary
+    const cloudinaryResult = await uploadBufferToCloudinary(req.file.buffer, {
+      folder: 'materials',
+      resource_type: resourceType,
+      public_id: `material-${Date.now()}-${Math.round(Math.random() * 1E9)}`
+    });
+
     // Construir dados do material
     const materialData = {
       title: req.body.title,
@@ -353,7 +346,7 @@ router.post('/', [
       course: req.body.course || undefined,
       year: parseInt(req.body.year),
       materialType: req.body.materialType,
-      fileUrl: `/uploads/${req.file.filename}`, // Caminho relativo do ficheiro
+      fileUrl: cloudinaryResult.url, // URL do Cloudinary
       fileName: req.file.originalname, // Nome original do ficheiro
       fileSize: req.file.size,
       fileType: req.file.mimetype,
@@ -379,10 +372,6 @@ router.post('/', [
     });
   } catch (error) {
     console.error('Erro ao criar material:', error);
-    // Se houver erro e um ficheiro foi enviado, removê-lo
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
     res.status(500).json({
       message: 'Erro ao criar material',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })
@@ -478,16 +467,24 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     }
 
     // Hard delete - eliminar permanentemente
-    // Remover ficheiro físico se existir
-    if (material.fileUrl && !material.fileUrl.startsWith('http')) {
+    // Remover ficheiro do Cloudinary se for URL do Cloudinary
+    if (material.fileUrl && material.fileUrl.includes('cloudinary.com')) {
+      try {
+        await deleteFromCloudinary(material.fileUrl, 'auto');
+        console.log('Ficheiro removido do Cloudinary:', material.fileUrl);
+      } catch (fileError) {
+        console.error('Erro ao remover ficheiro do Cloudinary:', fileError);
+        // Continuar mesmo se o ficheiro não for encontrado
+      }
+    } else if (material.fileUrl && !material.fileUrl.startsWith('http')) {
+      // Fallback: remover ficheiro local se ainda existir (migração)
       const filePath = path.join(__dirname, '..', material.fileUrl);
       if (fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
-          console.log('Ficheiro removido:', filePath);
+          console.log('Ficheiro local removido:', filePath);
         } catch (fileError) {
-          console.error('Erro ao remover ficheiro:', fileError);
-          // Continuar mesmo se o ficheiro não for encontrado
+          console.error('Erro ao remover ficheiro local:', fileError);
         }
       }
     }

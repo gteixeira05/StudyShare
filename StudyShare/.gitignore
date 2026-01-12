@@ -69,3 +69,7 @@ coverage/
 .cache/
 .temp/
 
+
+# Uploads (agora usando Cloudinary, mas manter pasta para compatibilidade com ficheiros antigos)
+backend/uploads/
+backend/uploads/**

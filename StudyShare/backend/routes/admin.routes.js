@@ -7,6 +7,7 @@ import { authMiddleware, adminOnly } from '../middleware/auth.middleware.js';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { deleteFromCloudinary } from '../utils/cloudinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,14 +251,22 @@ router.post('/reports/:reportId/resolve', authMiddleware, adminOnly, [
     if (material) {
       // É um report de material
       if (action === 'delete') {
-        // Remover ficheiro físico se existir
-        if (material.fileUrl && !material.fileUrl.startsWith('http')) {
+        // Remover ficheiro do Cloudinary se for URL do Cloudinary
+        if (material.fileUrl && material.fileUrl.includes('cloudinary.com')) {
+          try {
+            await deleteFromCloudinary(material.fileUrl, 'auto');
+            console.log('Ficheiro removido do Cloudinary:', material.fileUrl);
+          } catch (fileError) {
+            console.error('Erro ao remover ficheiro do Cloudinary:', fileError);
+          }
+        } else if (material.fileUrl && !material.fileUrl.startsWith('http')) {
+          // Fallback: remover ficheiro local se ainda existir (migração)
           const filePath = path.join(__dirname, '..', material.fileUrl);
           if (fs.existsSync(filePath)) {
             try {
               fs.unlinkSync(filePath);
             } catch (fileError) {
-              console.error('Erro ao remover ficheiro:', fileError);
+              console.error('Erro ao remover ficheiro local:', fileError);
             }
           }
         }
@@ -736,6 +745,59 @@ router.delete('/config/:key/values/:valueId/permanent', authMiddleware, adminOnl
     console.error('Erro ao eliminar valor permanentemente:', error);
     res.status(500).json({
       message: 'Erro ao eliminar valor'
+    });
+  }
+});
+
+/**
+ * @route   DELETE /api/admin/materials/cleanup-local-files
+ * @desc    Eliminar todos os materiais com URLs locais (migração para Cloudinary)
+ * @access  Private (Admin only)
+ */
+router.delete('/materials/cleanup-local-files', authMiddleware, adminOnly, async (req, res) => {
+  try {
+    // Encontrar todos os materiais com URLs locais (que não começam com http)
+    const localMaterials = await Material.find({
+      fileUrl: { $not: /^https?:\/\// },
+      isActive: true
+    }).populate('author', '_id');
+
+    if (localMaterials.length === 0) {
+      return res.json({
+        message: 'Não existem materiais com URLs locais para eliminar',
+        deletedCount: 0
+      });
+    }
+
+    const materialIds = localMaterials.map(m => m._id);
+    const authorIds = [...new Set(localMaterials.map(m => m.author._id.toString()))];
+
+    // Eliminar todos os materiais
+    const deleteResult = await Material.deleteMany({
+      _id: { $in: materialIds }
+    });
+
+    // Atualizar contadores de materiais dos autores
+    for (const authorId of authorIds) {
+      const actualCount = await Material.countDocuments({
+        author: authorId,
+        isActive: true
+      });
+      
+      await User.findByIdAndUpdate(authorId, {
+        materialsUploaded: actualCount
+      });
+    }
+
+    res.json({
+      message: `${deleteResult.deletedCount} material(is) com URLs locais eliminado(s) com sucesso`,
+      deletedCount: deleteResult.deletedCount,
+      materialsDeleted: materialIds.length
+    });
+  } catch (error) {
+    console.error('Erro ao eliminar materiais locais:', error);
+    res.status(500).json({
+      message: 'Erro ao eliminar materiais locais'
     });
   }
 });

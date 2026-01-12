@@ -7,6 +7,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import User from '../models/User.model.js';
 import { authMiddleware } from '../middleware/auth.middleware.js';
+import { uploadBufferToCloudinary, deleteFromCloudinary } from '../utils/cloudinary.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,21 +17,8 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'studyshare_secret_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
-// Configurar multer para upload de avatares
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const avatarsDir = path.join(__dirname, '..', 'uploads', 'avatars');
-    if (!fs.existsSync(avatarsDir)) {
-      fs.mkdirSync(avatarsDir, { recursive: true });
-    }
-    cb(null, avatarsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `avatar-${req.user._id}-${uniqueSuffix}${ext}`);
-  }
-});
+// Configurar multer para upload de avatares em memória (para Cloudinary)
+const avatarStorage = multer.memoryStorage();
 
 const avatarUpload = multer({
   storage: avatarStorage,
@@ -282,29 +270,39 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
 
     const user = await User.findById(req.user._id);
     if (!user) {
-      // Remover ficheiro se o utilizador não existir
-      if (req.file && fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
       return res.status(404).json({
         message: 'Utilizador não encontrado'
       });
     }
 
-    // Remover avatar antigo se existir
-    if (user.avatar && !user.avatar.startsWith('http')) {
+    // Remover avatar antigo do Cloudinary se existir
+    if (user.avatar && user.avatar.includes('cloudinary.com')) {
+      try {
+        await deleteFromCloudinary(user.avatar, 'image');
+      } catch (error) {
+        console.error('Erro ao remover avatar antigo do Cloudinary:', error);
+      }
+    } else if (user.avatar && !user.avatar.startsWith('http')) {
+      // Fallback: remover avatar local se ainda existir (migração)
       const oldAvatarPath = path.join(__dirname, '..', user.avatar);
       if (fs.existsSync(oldAvatarPath)) {
         try {
           fs.unlinkSync(oldAvatarPath);
         } catch (error) {
-          console.error('Erro ao remover avatar antigo:', error);
+          console.error('Erro ao remover avatar local antigo:', error);
         }
       }
     }
 
+    // Upload para Cloudinary
+    const cloudinaryResult = await uploadBufferToCloudinary(req.file.buffer, {
+      folder: 'avatars',
+      resource_type: 'image',
+      public_id: `avatar-${req.user._id}-${Date.now()}`
+    });
+
     // Atualizar avatar no utilizador
-    user.avatar = `/uploads/avatars/${req.file.filename}`;
+    user.avatar = cloudinaryResult.url;
     await user.save();
 
     res.json({
@@ -313,10 +311,6 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
     });
   } catch (error) {
     console.error('Erro ao fazer upload do avatar:', error);
-    // Remover ficheiro em caso de erro
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
     res.status(500).json({
       message: 'Erro ao fazer upload do avatar'
     });
