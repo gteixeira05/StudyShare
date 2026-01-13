@@ -6,11 +6,18 @@ const baseURL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
   : '/api'
 
+// Log para debug (apenas em desenvolvimento)
+if (import.meta.env.DEV) {
+  console.log('🔗 API Base URL:', baseURL)
+  console.log('🔗 VITE_API_URL:', import.meta.env.VITE_API_URL)
+}
+
 const api = axios.create({
   baseURL,
   headers: {
     'Content-Type': 'application/json'
-  }
+  },
+  timeout: 30000 // 30 segundos de timeout
 })
 
 // Interceptor para adicionar token
@@ -37,8 +44,18 @@ api.interceptors.response.use(
   (error) => {
     // Erro de autenticação
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      // Não redirecionar se estiver em rotas de autenticação (login/register)
+      const url = error.config?.url || ''
+      const isAuthRoute = url.includes('/auth/login') || url.includes('/auth/register')
+      
+      // Remover token apenas se não for rota de autenticação
+      if (!isAuthRoute) {
+        localStorage.removeItem('token')
+        // Evitar redirecionamento em loop - verificar se já não está em /login
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/register') {
+          window.location.href = '/login'
+        }
+      }
       return Promise.reject(error)
     }
     

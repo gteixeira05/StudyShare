@@ -21,12 +21,24 @@ const LoginPage = () => {
     setLoading(true)
 
     try {
-      const result = await login(email, password)
+      // Normalizar email antes de enviar
+      const normalizedEmail = email.trim().toLowerCase()
+      
+      if (!normalizedEmail || !password) {
+        setError('Por favor, preencha todos os campos')
+        setLoading(false)
+        return
+      }
+
+      const result = await login(normalizedEmail, password)
 
       if (result.success) {
-        navigate('/')
+        // Pequeno delay para garantir que o token foi salvo
+        setTimeout(() => {
+          navigate('/')
+        }, 100)
       } else {
-        setError(result.message)
+        setError(result.message || 'Erro ao fazer login')
       }
     } catch (error) {
       setError('Erro inesperado ao fazer login')

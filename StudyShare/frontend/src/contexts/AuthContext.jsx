@@ -22,12 +22,23 @@ export const AuthProvider = ({ children }) => {
         try {
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`
           const response = await api.get('/auth/me')
-          setUser(response.data.user)
+          
+          if (response.data?.user) {
+            setUser(response.data.user)
+          } else {
+            throw new Error('Resposta inválida do servidor')
+          }
         } catch (error) {
-          // Erro silencioso - pode ser que o backend não esteja a correr ainda
-          console.warn('Não foi possível carregar utilizador:', error.message)
-          localStorage.removeItem('token')
-          setToken(null)
+          // Erro ao carregar utilizador - token pode estar inválido ou expirado
+          console.warn('Não foi possível carregar utilizador:', error.response?.status, error.message)
+          
+          // Só remover token se for erro 401 (não autorizado)
+          // Outros erros podem ser temporários (servidor não disponível, etc)
+          if (error.response?.status === 401) {
+            localStorage.removeItem('token')
+            setToken(null)
+            setUser(null)
+          }
         }
       }
       setLoading(false)
@@ -48,6 +59,14 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/auth/login', { email, password })
       const { token: newToken, user: userData } = response.data
       
+      if (!newToken || !userData) {
+        console.error('Resposta de login inválida:', response.data)
+        return {
+          success: false,
+          message: 'Resposta inválida do servidor'
+        }
+      }
+      
       localStorage.setItem('token', newToken)
       api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
       setToken(newToken)
@@ -55,9 +74,12 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true }
     } catch (error) {
+      console.error('Erro no login:', error)
+      const errorMessage = error.response?.data?.message || error.message || 'Erro ao fazer login'
+      
       return {
         success: false,
-        message: error.response?.data?.message || 'Erro ao fazer login'
+        message: errorMessage
       }
     }
   }

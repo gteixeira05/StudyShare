@@ -141,11 +141,22 @@ router.post('/login', [
     }
 
     const { email, password } = req.body;
+    
+    // Log para debug (apenas em desenvolvimento ou se necessário)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Tentativa de login para:', email);
+    }
+
+    // Normalizar email para lowercase (mesmo comportamento do schema)
+    const normalizedEmail = email.toLowerCase().trim();
 
     // Buscar utilizador com password
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
     if (!user) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Utilizador não encontrado para:', normalizedEmail);
+      }
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
@@ -162,6 +173,9 @@ router.post('/login', [
     const isPasswordValid = await user.comparePassword(password);
 
     if (!isPasswordValid) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Password incorreta para utilizador:', normalizedEmail);
+      }
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
@@ -169,6 +183,10 @@ router.post('/login', [
 
     // Gerar token
     const token = generateToken(user._id);
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Login bem-sucedido para:', normalizedEmail);
+    }
 
     // Retornar dados do utilizador (sem password)
     res.json({

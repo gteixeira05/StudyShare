@@ -74,9 +74,10 @@ app.use(cors({
     // Em produção, verificar se a origem está permitida
     const isAllowed = allowedOrigins.some(allowedOrigin => {
       if (typeof allowedOrigin === 'string') {
-        // Comparar sem trailing slash
-        const originClean = origin.replace(/\/$/, '');
-        return originClean === allowedOrigin;
+        // Comparar sem trailing slash e protocolo
+        const originClean = origin.replace(/\/$/, '').toLowerCase();
+        const allowedClean = allowedOrigin.replace(/\/$/, '').toLowerCase();
+        return originClean === allowedClean;
       } else if (allowedOrigin instanceof RegExp) {
         return allowedOrigin.test(origin);
       }
@@ -86,6 +87,9 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
+      // Log para debug em produção (pode remover depois)
+      console.warn('CORS bloqueado para origem:', origin);
+      console.warn('Origens permitidas:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
