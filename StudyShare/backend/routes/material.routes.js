@@ -537,9 +537,10 @@ router.get('/:id/preview', async (req, res) => {
       });
     }
 
-    // Se fileUrl é uma URL externa (http/https), redirecionar
+    // Se fileUrl é uma URL externa (http/https), redirecionar para Cloudinary
     if (material.fileUrl.startsWith('http://') || material.fileUrl.startsWith('https://')) {
-      return res.redirect(material.fileUrl);
+      // Para URLs do Cloudinary, usar redirecionamento 302
+      return res.redirect(302, material.fileUrl);
     }
 
     // Para URLs locais, servir o ficheiro diretamente

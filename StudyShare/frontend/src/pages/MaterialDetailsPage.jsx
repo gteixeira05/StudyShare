@@ -314,7 +314,10 @@ const MaterialDetailsPage = () => {
       
       // Obter token para autenticação
       const token = localStorage.getItem('token')
-      const apiBaseUrl = '/api'
+      // Usar VITE_API_URL em produção, senão usar proxy do Vite em desenvolvimento
+      const apiBaseUrl = import.meta.env.VITE_API_URL
+        ? `${import.meta.env.VITE_API_URL}/api`
+        : '/api'
       
       // Usar fetch diretamente para evitar problemas com axios e blob
       const response = await fetch(`${apiBaseUrl}/materials/${id}/download`, {
