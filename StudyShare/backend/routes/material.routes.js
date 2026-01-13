@@ -573,7 +573,10 @@ router.get('/:id/preview', async (req, res) => {
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(material.fileName || 'file')}"`);
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Cache-Control', 'public, max-age=3600');
-        res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // Permitir embedding no mesmo domínio
+        // Remover X-Frame-Options para permitir embedding em iframes de qualquer domínio
+        // O PDF viewer do browser funciona melhor sem este header
+        res.setHeader('Access-Control-Allow-Origin', '*'); // Permitir CORS para preview
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         if (contentLength) {
           res.setHeader('Content-Length', contentLength);
         } else {
@@ -641,7 +644,10 @@ router.get('/:id/preview', async (req, res) => {
       // Headers para permitir CORS e embedding em iframes
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // Permitir embedding no mesmo domínio
+      // Remover X-Frame-Options para permitir embedding em iframes de qualquer domínio
+      // O PDF viewer do browser funciona melhor sem este header
+      res.setHeader('Access-Control-Allow-Origin', '*'); // Permitir CORS para preview
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
       
       // Ler e enviar o ficheiro
       const fileStream = fs.createReadStream(filePath);
