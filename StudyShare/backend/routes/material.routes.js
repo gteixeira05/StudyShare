@@ -537,10 +537,57 @@ router.get('/:id/preview', async (req, res) => {
       });
     }
 
-    // Se fileUrl é uma URL externa (http/https), redirecionar para Cloudinary
+    // Se fileUrl é uma URL externa (http/https), fazer proxy do ficheiro
     if (material.fileUrl.startsWith('http://') || material.fileUrl.startsWith('https://')) {
-      // Para URLs do Cloudinary, usar redirecionamento 302
-      return res.redirect(302, material.fileUrl);
+      try {
+        // Fazer fetch do ficheiro externo (Node.js 18+ tem fetch nativo)
+        const fileResponse = await fetch(material.fileUrl);
+        
+        if (!fileResponse.ok) {
+          throw new Error(`HTTP error! status: ${fileResponse.status}`);
+        }
+
+        // Obter o tipo de conteúdo
+        const contentType = fileResponse.headers.get('content-type') || 'application/pdf';
+        const contentLength = fileResponse.headers.get('content-length');
+        
+        // Obter o buffer do ficheiro como arrayBuffer
+        const arrayBuffer = await fileResponse.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        // Obter extensão do ficheiro para determinar content-type correto
+        const ext = path.extname(material.fileName || material.fileUrl).toLowerCase();
+        const contentTypes = {
+          '.pdf': 'application/pdf',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.png': 'image/png',
+          '.gif': 'image/gif',
+          '.webp': 'image/webp',
+          '.svg': 'image/svg+xml'
+        };
+        const finalContentType = contentTypes[ext] || contentType;
+        
+        // Headers para visualização inline (não download)
+        res.setHeader('Content-Type', finalContentType);
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(material.fileName || 'file')}"`);
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN'); // Permitir embedding no mesmo domínio
+        if (contentLength) {
+          res.setHeader('Content-Length', contentLength);
+        } else {
+          res.setHeader('Content-Length', buffer.length);
+        }
+
+        // Enviar o ficheiro como binário
+        res.end(buffer, 'binary');
+        return; // Importante: não continuar após enviar o ficheiro
+      } catch (fetchError) {
+        console.error('Erro ao fazer proxy do preview do Cloudinary:', fetchError);
+        // Se falhar, tentar redirecionar como fallback
+        return res.redirect(302, material.fileUrl);
+      }
     }
 
     // Para URLs locais, servir o ficheiro diretamente

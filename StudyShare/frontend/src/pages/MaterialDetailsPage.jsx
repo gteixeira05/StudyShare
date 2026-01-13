@@ -937,9 +937,8 @@ const MaterialDetailsPage = () => {
                 const apiBaseUrl = import.meta.env.VITE_API_URL
                   ? `${import.meta.env.VITE_API_URL}/api`
                   : '/api'
-                const previewUrl = material.fileUrl?.startsWith('http') 
-                  ? material.fileUrl 
-                  : `${apiBaseUrl}/materials/${material._id}/preview`
+                // Sempre usar a rota de preview do backend para garantir headers corretos
+                const previewUrl = `${apiBaseUrl}/materials/${material._id}/preview`
 
                 // Para PDFs
                 if (isPDF) {
