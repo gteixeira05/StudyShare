@@ -16,8 +16,9 @@ const Avatar = ({ user, size = 'md', className = '' }) => {
     if (avatar.startsWith('http')) {
       return avatar
     }
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'
-    return `${backendUrl}${avatar}`
+    // Em produção, usar VITE_BACKEND_URL. Em desenvolvimento, usar localhost
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '')
+    return backendUrl ? `${backendUrl}${avatar}` : avatar
   }
 
   const avatarUrl = useMemo(() => {
