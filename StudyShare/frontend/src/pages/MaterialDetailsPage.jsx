@@ -139,10 +139,13 @@ const MaterialDetailsPage = () => {
     setShowWordPreview(true)
     
     try {
-      // Obter URL do ficheiro
+      // Obter URL do ficheiro - usar VITE_API_URL em produção para evitar interceptação pelo Vercel
+      const apiBaseUrl = import.meta.env.VITE_API_URL
+        ? `${import.meta.env.VITE_API_URL}/api`
+        : '/api'
       const previewUrl = material.fileUrl?.startsWith('http') 
         ? material.fileUrl 
-        : `/api/materials/${material._id}/preview`
+        : `${apiBaseUrl}/materials/${material._id}/preview`
       
       // Carregar ficheiro como array buffer
       const response = await fetch(previewUrl)
@@ -930,9 +933,13 @@ const MaterialDetailsPage = () => {
                                 fileType.includes('presentation') || 
                                 fileType.includes('word') || 
                                 fileType.includes('excel')
+                // Usar VITE_API_URL em produção para evitar interceptação pelo Vercel
+                const apiBaseUrl = import.meta.env.VITE_API_URL
+                  ? `${import.meta.env.VITE_API_URL}/api`
+                  : '/api'
                 const previewUrl = material.fileUrl?.startsWith('http') 
                   ? material.fileUrl 
-                  : `/api/materials/${material._id}/preview`
+                  : `${apiBaseUrl}/materials/${material._id}/preview`
 
                 // Para PDFs
                 if (isPDF) {
