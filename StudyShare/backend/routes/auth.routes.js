@@ -125,8 +125,7 @@ router.post('/register', [
  */
 router.post('/login', [
   body('email')
-    .isEmail().withMessage('Email inválido')
-    .normalizeEmail(),
+    .isEmail().withMessage('Email inválido'),
   body('password')
     .notEmpty().withMessage('Password é obrigatória')
 ], async (req, res) => {
@@ -134,6 +133,7 @@ router.post('/login', [
     // Verificar erros de validação
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('❌ Erros de validação:', errors.array());
       return res.status(400).json({
         message: 'Dados inválidos',
         errors: errors.array()
@@ -142,51 +142,63 @@ router.post('/login', [
 
     const { email, password } = req.body;
     
-    // Log para debug (apenas em desenvolvimento ou se necessário)
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Tentativa de login para:', email);
-    }
+    // Normalizar email manualmente (lowercase + trim) - mesmo comportamento do schema
+    const normalizedEmail = (email || '').toLowerCase().trim();
+    
+    // Log para debug (sempre, para identificar problemas em produção)
+    console.log('🔐 Tentativa de login:', {
+      emailOriginal: email,
+      emailNormalizado: normalizedEmail,
+      passwordLength: password?.length || 0,
+      timestamp: new Date().toISOString()
+    });
 
-    // Normalizar email para lowercase (mesmo comportamento do schema)
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // Buscar utilizador com password
+    // Buscar utilizador com password - o schema já salva em lowercase
     const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
     if (!user) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Utilizador não encontrado para:', normalizedEmail);
-      }
+      console.log('⚠️ Utilizador não encontrado para:', normalizedEmail);
+      
+      // Debug: listar alguns emails do banco (apenas primeiros 5)
+      const sampleUsers = await User.find({}).select('email').limit(5);
+      console.log('📋 Exemplo de emails no banco:', sampleUsers.map(u => u.email));
+      
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
     }
 
+    console.log('✅ Utilizador encontrado:', {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      isActive: user.isActive
+    });
+
     // Verificar se a conta está ativa
     if (!user.isActive) {
+      console.log('🚫 Conta desativada para:', normalizedEmail);
       return res.status(403).json({
         message: 'Conta desativada. Contacte o administrador.'
       });
     }
 
     // Verificar password
+    console.log('🔑 Verificando password...');
     const isPasswordValid = await user.comparePassword(password);
 
     if (!isPasswordValid) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Password incorreta para utilizador:', normalizedEmail);
-      }
+      console.log('❌ Password incorreta para:', normalizedEmail);
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
     }
 
+    console.log('✅ Password válida!');
+
     // Gerar token
     const token = generateToken(user._id);
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Login bem-sucedido para:', normalizedEmail);
-    }
+    console.log('🎫 Token gerado com sucesso para:', normalizedEmail);
 
     // Retornar dados do utilizador (sem password)
     res.json({
@@ -195,7 +207,7 @@ router.post('/login', [
       user: user.toPublicJSON()
     });
   } catch (error) {
-    console.error('Erro no login:', error);
+    console.error('❌ Erro no login:', error);
     res.status(500).json({
       message: 'Erro ao fazer login',
       ...(process.env.NODE_ENV === 'development' && { error: error.message })

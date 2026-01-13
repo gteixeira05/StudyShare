@@ -56,25 +56,41 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
+      console.log('🔐 Iniciando login:', { email, passwordLength: password?.length || 0 })
+      
       const response = await api.post('/auth/login', { email, password })
+      
+      console.log('✅ Resposta do servidor:', {
+        status: response.status,
+        hasToken: !!response.data?.token,
+        hasUser: !!response.data?.user
+      })
+      
       const { token: newToken, user: userData } = response.data
       
       if (!newToken || !userData) {
-        console.error('Resposta de login inválida:', response.data)
+        console.error('❌ Resposta de login inválida:', response.data)
         return {
           success: false,
           message: 'Resposta inválida do servidor'
         }
       }
       
+      console.log('💾 Salvando token e dados do utilizador...')
       localStorage.setItem('token', newToken)
       api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`
       setToken(newToken)
       setUser(userData)
       
+      console.log('✅ Login bem-sucedido!')
       return { success: true }
     } catch (error) {
-      console.error('Erro no login:', error)
+      console.error('❌ Erro no login:', {
+        status: error.response?.status,
+        message: error.response?.data?.message || error.message,
+        data: error.response?.data
+      })
+      
       const errorMessage = error.response?.data?.message || error.message || 'Erro ao fazer login'
       
       return {
