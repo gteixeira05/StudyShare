@@ -15,18 +15,25 @@ const LoginPage = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    e.stopPropagation()
+    
     setError('')
     setLoading(true)
 
-    const result = await login(email, password)
+    try {
+      const result = await login(email, password)
 
-    if (result.success) {
-      navigate('/')
-    } else {
-      setError(result.message)
+      if (result.success) {
+        navigate('/')
+      } else {
+        setError(result.message)
+      }
+    } catch (error) {
+      setError('Erro inesperado ao fazer login')
+      console.error('Erro no login:', error)
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
