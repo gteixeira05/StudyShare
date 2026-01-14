@@ -211,9 +211,6 @@ router.get('/reports', authMiddleware, adminOnly, async (req, res) => {
 });
 
 // Resolver report
- * @desc    Resolver um report (remover material ou ignorar)
- * @access  Private (Admin only)
- */
 router.post('/reports/:reportId/resolve', authMiddleware, adminOnly, [
   body('action')
     .isIn(['delete', 'ignore'])
@@ -334,9 +331,6 @@ router.post('/reports/:reportId/resolve', authMiddleware, adminOnly, [
 });
 
 // Obter estatísticas do sistema
- * @desc    Obter estatísticas gerais (apenas admin)
- * @access  Private (Admin only)
- */
 router.get('/stats', authMiddleware, adminOnly, async (req, res) => {
   try {
     const totalUsers = await User.countDocuments();
@@ -404,9 +398,6 @@ router.get('/stats', authMiddleware, adminOnly, async (req, res) => {
 });
 
 // Obter configuração do sistema
- * @desc    Obter configuração do sistema (anos ou tipos de material)
- * @access  Private (Admin only)
- */
 router.get('/config/:key', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { key } = req.params;
@@ -468,9 +459,6 @@ router.get('/config/:key', authMiddleware, adminOnly, async (req, res) => {
 });
 
 // Adicionar valor a configuração
- * @desc    Adicionar novo valor à configuração
- * @access  Private (Admin only)
- */
 router.post('/config/:key/values', [
   authMiddleware,
   adminOnly,
@@ -548,9 +536,6 @@ router.post('/config/:key/values', [
 });
 
 // Atualizar valor de configuração
- * @desc    Atualizar valor da configuração
- * @access  Private (Admin only)
- */
 router.put('/config/:key/values/:valueId', [
   authMiddleware,
   adminOnly,
@@ -659,9 +644,6 @@ router.delete('/config/:key/values/:valueId', authMiddleware, adminOnly, async (
 });
 
 // Eliminar permanentemente valor de configuração
- * @desc    Eliminar permanentemente valor da configuração (apenas se não houver materiais usando)
- * @access  Private (Admin only)
- */
 router.delete('/config/:key/values/:valueId/permanent', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { key, valueId } = req.params;
@@ -728,9 +710,6 @@ router.delete('/config/:key/values/:valueId/permanent', authMiddleware, adminOnl
 });
 
 // Limpar ficheiros locais antigos
- * @desc    Eliminar todos os materiais com URLs locais (migração para Cloudinary)
- * @access  Private (Admin only)
- */
 router.delete('/materials/cleanup-local-files', authMiddleware, adminOnly, async (req, res) => {
   try {
     // Encontrar todos os materiais com URLs locais (que não começam com http)
