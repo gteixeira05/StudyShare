@@ -1,13 +1,9 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.model.js';
 
-/**
- * Middleware para validar JWT token
- * Adiciona req.user com os dados do utilizador autenticado
- */
+// Middleware para validar JWT token
 export const authMiddleware = async (req, res, next) => {
   try {
-    // Obter token do header
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -16,12 +12,8 @@ export const authMiddleware = async (req, res, next) => {
       });
     }
 
-    const token = authHeader.substring(7); // Remove "Bearer "
-
-    // Verificar e decodificar token
+    const token = authHeader.substring(7);
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'studyshare_secret_key_change_in_production');
-
-    // Buscar utilizador no banco de dados
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
@@ -36,7 +28,6 @@ export const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // Adicionar utilizador ao request
     req.user = user;
     next();
   } catch (error) {
@@ -58,10 +49,7 @@ export const authMiddleware = async (req, res, next) => {
   }
 };
 
-/**
- * Middleware opcional - verifica se o utilizador está autenticado
- * Mas não bloqueia se não estiver
- */
+// Middleware opcional - verifica se o utilizador está autenticado
 export const optionalAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -78,15 +66,11 @@ export const optionalAuth = async (req, res, next) => {
     
     next();
   } catch (error) {
-    // Se houver erro, continua sem autenticação
     next();
   }
 };
 
-/**
- * Middleware para verificar se o utilizador é Administrador
- * Deve ser usado após authMiddleware
- */
+// Middleware para verificar se o utilizador é Administrador
 export const adminOnly = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({

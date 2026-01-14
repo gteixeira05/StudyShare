@@ -14,11 +14,7 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-/**
- * @route   GET /api/admin/users
- * @desc    Listar todos os utilizadores (apenas admin)
- * @access  Private (Admin only)
- */
+// Listar todos os utilizadores (apenas admin)
 router.get('/users', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { page = 1, limit = 20, search = '' } = req.query;
@@ -57,11 +53,7 @@ router.get('/users', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/admin/users/:id/role
- * @desc    Promover/remover admin de um utilizador (apenas admin)
- * @access  Private (Admin only)
- */
+// Promover/remover admin de um utilizador
 router.put('/users/:id/role', authMiddleware, adminOnly, [
   body('role')
     .isIn(['Estudante', 'Administrador'])
@@ -108,11 +100,7 @@ router.put('/users/:id/role', authMiddleware, adminOnly, [
   }
 });
 
-/**
- * @route   GET /api/admin/reports
- * @desc    Listar todos os reports (apenas admin)
- * @access  Private (Admin only)
- */
+// Listar todos os reports (apenas admin)
 router.get('/reports', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { page = 1, limit = 20, status = 'pending' } = req.query;
@@ -222,8 +210,7 @@ router.get('/reports', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/admin/reports/:reportId/resolve
+// Resolver report
  * @desc    Resolver um report (remover material ou ignorar)
  * @access  Private (Admin only)
  */
@@ -346,8 +333,7 @@ router.post('/reports/:reportId/resolve', authMiddleware, adminOnly, [
   }
 });
 
-/**
- * @route   GET /api/admin/stats
+// Obter estatísticas do sistema
  * @desc    Obter estatísticas gerais (apenas admin)
  * @access  Private (Admin only)
  */
@@ -417,8 +403,7 @@ router.get('/stats', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/admin/config/:key
+// Obter configuração do sistema
  * @desc    Obter configuração do sistema (anos ou tipos de material)
  * @access  Private (Admin only)
  */
@@ -482,8 +467,7 @@ router.get('/config/:key', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/admin/config/:key/values
+// Adicionar valor a configuração
  * @desc    Adicionar novo valor à configuração
  * @access  Private (Admin only)
  */
@@ -563,8 +547,7 @@ router.post('/config/:key/values', [
   }
 });
 
-/**
- * @route   PUT /api/admin/config/:key/values/:valueId
+// Atualizar valor de configuração
  * @desc    Atualizar valor da configuração
  * @access  Private (Admin only)
  */
@@ -630,11 +613,7 @@ router.put('/config/:key/values/:valueId', [
   }
 });
 
-/**
- * @route   DELETE /api/admin/config/:key/values/:valueId
- * @desc    Remover valor da configuração (desativar em vez de remover)
- * @access  Private (Admin only)
- */
+// Desativar valor de configuração
 router.delete('/config/:key/values/:valueId', authMiddleware, adminOnly, async (req, res) => {
   try {
     const { key, valueId } = req.params;
@@ -679,8 +658,7 @@ router.delete('/config/:key/values/:valueId', authMiddleware, adminOnly, async (
   }
 });
 
-/**
- * @route   DELETE /api/admin/config/:key/values/:valueId/permanent
+// Eliminar permanentemente valor de configuração
  * @desc    Eliminar permanentemente valor da configuração (apenas se não houver materiais usando)
  * @access  Private (Admin only)
  */
@@ -749,8 +727,7 @@ router.delete('/config/:key/values/:valueId/permanent', authMiddleware, adminOnl
   }
 });
 
-/**
- * @route   DELETE /api/admin/materials/cleanup-local-files
+// Limpar ficheiros locais antigos
  * @desc    Eliminar todos os materiais com URLs locais (migração para Cloudinary)
  * @access  Private (Admin only)
  */

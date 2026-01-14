@@ -17,7 +17,7 @@ const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'studyshare_secret_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '7d';
 
-// Configurar multer para upload de avatares em memória (para Cloudinary)
+// Configurar multer para upload de avatares
 const avatarStorage = multer.memoryStorage();
 
 const avatarUpload = multer({
@@ -42,11 +42,7 @@ const generateToken = (userId) => {
   });
 };
 
-/**
- * @route   POST /api/auth/register
- * @desc    Registo de novo utilizador
- * @access  Public
- */
+// Registo de novo utilizador
 router.post('/register', [
   body('name')
     .trim()
@@ -68,7 +64,6 @@ router.post('/register', [
     .isInt({ min: 1, max: 5 }).withMessage('Ano deve estar entre 1 e 5')
 ], async (req, res) => {
   try {
-    // Verificar erros de validação
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -78,16 +73,14 @@ router.post('/register', [
     }
 
     const { name, email, password, role, course, year } = req.body;
-
-    // Verificar se o email já existe
     const existingUser = await User.findOne({ email });
+    
     if (existingUser) {
       return res.status(400).json({
         message: 'Email já registado. Utilize outro email ou faça login.'
       });
     }
 
-    // Criar novo utilizador (apenas Estudante por padrão, Administrador só por seed/manual)
     const userData = {
       name,
       email,
@@ -99,11 +92,8 @@ router.post('/register', [
 
     const user = new User(userData);
     await user.save();
-
-    // Gerar token
     const token = generateToken(user._id);
 
-    // Retornar dados do utilizador (sem password)
     res.status(201).json({
       message: 'Registo realizado com sucesso',
       token,
@@ -118,11 +108,7 @@ router.post('/register', [
   }
 });
 
-/**
- * @route   POST /api/auth/login
- * @desc    Login de utilizador
- * @access  Public
- */
+// Login de utilizador
 router.post('/login', [
   body('email')
     .isEmail().withMessage('Email inválido'),
@@ -130,10 +116,8 @@ router.post('/login', [
     .notEmpty().withMessage('Password é obrigatória')
 ], async (req, res) => {
   try {
-    // Verificar erros de validação
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('❌ Erros de validação:', errors.array());
       return res.status(400).json({
         message: 'Dados inválidos',
         errors: errors.array()
@@ -142,65 +126,30 @@ router.post('/login', [
 
     const { email, password } = req.body;
     
-    // Normalizar email manualmente (lowercase + trim) - mesmo comportamento do schema
     const normalizedEmail = (email || '').toLowerCase().trim();
-    
-    // Log para debug (sempre, para identificar problemas em produção)
-    console.log('🔐 Tentativa de login:', {
-      emailOriginal: email,
-      emailNormalizado: normalizedEmail,
-      passwordLength: password?.length || 0,
-      timestamp: new Date().toISOString()
-    });
-
-    // Buscar utilizador com password - o schema já salva em lowercase
     const user = await User.findOne({ email: normalizedEmail }).select('+password');
 
     if (!user) {
-      console.log('⚠️ Utilizador não encontrado para:', normalizedEmail);
-      
-      // Debug: listar alguns emails do banco (apenas primeiros 5)
-      const sampleUsers = await User.find({}).select('email').limit(5);
-      console.log('📋 Exemplo de emails no banco:', sampleUsers.map(u => u.email));
-      
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
     }
 
-    console.log('✅ Utilizador encontrado:', {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      isActive: user.isActive
-    });
-
-    // Verificar se a conta está ativa
     if (!user.isActive) {
-      console.log('🚫 Conta desativada para:', normalizedEmail);
       return res.status(403).json({
         message: 'Conta desativada. Contacte o administrador.'
       });
     }
 
-    // Verificar password
-    console.log('🔑 Verificando password...');
     const isPasswordValid = await user.comparePassword(password);
-
     if (!isPasswordValid) {
-      console.log('❌ Password incorreta para:', normalizedEmail);
       return res.status(401).json({
         message: 'Email ou password incorretos'
       });
     }
 
-    console.log('✅ Password válida!');
-
-    // Gerar token
     const token = generateToken(user._id);
-    console.log('🎫 Token gerado com sucesso para:', normalizedEmail);
 
-    // Retornar dados do utilizador (sem password)
     res.json({
       message: 'Login realizado com sucesso',
       token,
@@ -215,11 +164,7 @@ router.post('/login', [
   }
 });
 
-/**
- * @route   GET /api/auth/me
- * @desc    Obter dados do utilizador autenticado
- * @access  Private
- */
+// Obter dados do utilizador autenticado
 router.get('/me', authMiddleware, async (req, res) => {
   try {
     res.json({
@@ -233,11 +178,7 @@ router.get('/me', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/auth/me
- * @desc    Atualizar perfil do utilizador autenticado
- * @access  Private
- */
+// Atualizar perfil do utilizador autenticado
 router.put('/me', [
   authMiddleware,
   body('name')
@@ -285,11 +226,7 @@ router.put('/me', [
   }
 });
 
-/**
- * @route   POST /api/auth/me/avatar
- * @desc    Upload de avatar do utilizador
- * @access  Private
- */
+// Upload de avatar do utilizador
 router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (req, res) => {
   try {
     if (!req.file) {
@@ -305,7 +242,6 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
       });
     }
 
-    // Remover avatar antigo do Cloudinary se existir
     if (user.avatar && user.avatar.includes('cloudinary.com')) {
       try {
         await deleteFromCloudinary(user.avatar, 'image');
@@ -313,7 +249,6 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
         console.error('Erro ao remover avatar antigo do Cloudinary:', error);
       }
     } else if (user.avatar && !user.avatar.startsWith('http')) {
-      // Fallback: remover avatar local se ainda existir (migração)
       const oldAvatarPath = path.join(__dirname, '..', user.avatar);
       if (fs.existsSync(oldAvatarPath)) {
         try {
@@ -324,14 +259,12 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
       }
     }
 
-    // Upload para Cloudinary
     const cloudinaryResult = await uploadBufferToCloudinary(req.file.buffer, {
       folder: 'avatars',
       resource_type: 'image',
       public_id: `avatar-${req.user._id}-${Date.now()}`
     });
 
-    // Atualizar avatar no utilizador
     user.avatar = cloudinaryResult.url;
     await user.save();
 
@@ -347,11 +280,7 @@ router.post('/me/avatar', authMiddleware, avatarUpload.single('avatar'), async (
   }
 });
 
-/**
- * @route   PUT /api/auth/me/password
- * @desc    Alterar password do utilizador
- * @access  Private
- */
+// Alterar password do utilizador
 router.put('/me/password', [
   authMiddleware,
   body('currentPassword')
@@ -369,16 +298,14 @@ router.put('/me/password', [
     }
 
     const { currentPassword, newPassword } = req.body;
-
-    // Buscar utilizador com password
     const user = await User.findById(req.user._id).select('+password');
+    
     if (!user) {
       return res.status(404).json({
         message: 'Utilizador não encontrado'
       });
     }
 
-    // Verificar password atual
     const isPasswordValid = await user.comparePassword(currentPassword);
     if (!isPasswordValid) {
       return res.status(401).json({
@@ -386,7 +313,6 @@ router.put('/me/password', [
       });
     }
 
-    // Atualizar password
     user.password = newPassword;
     await user.save();
 

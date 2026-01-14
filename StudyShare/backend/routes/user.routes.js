@@ -7,11 +7,7 @@ import { recalculateUserReputation } from '../utils/reputation.js';
 
 const router = express.Router();
 
-/**
- * @route   GET /api/users/me/materials
- * @desc    Obter materiais do utilizador autenticado (apenas ativos)
- * @access  Private
- */
+// Obter materiais do utilizador autenticado
 router.get('/me/materials', authMiddleware, async (req, res) => {
   try {
     const materials = await Material.find({
@@ -30,11 +26,7 @@ router.get('/me/materials', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/users/:id
- * @desc    Obter perfil público de um utilizador
- * @access  Public
- */
+// Obter perfil público de um utilizador
 router.get('/:id', async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
@@ -67,11 +59,7 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/users/:id/materials
- * @desc    Obter materiais de um utilizador
- * @access  Public
- */
+// Obter materiais de um utilizador
 router.get('/:id/materials', async (req, res) => {
   try {
     const materials = await Material.find({
@@ -92,11 +80,7 @@ router.get('/:id/materials', async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/users
- * @desc    Listar utilizadores (apenas admin)
- * @access  Private (Admin only)
- */
+// Listar utilizadores (apenas admin)
 router.get('/', authMiddleware, adminOnly, async (req, res) => {
   try {
     const users = await User.find({ isActive: true })
@@ -113,11 +97,7 @@ router.get('/', authMiddleware, adminOnly, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/users/me/materials/count
- * @desc    Recalcular contador de materiais partilhados do utilizador autenticado
- * @access  Private
- */
+// Recalcular contador de materiais partilhados
 router.get('/me/materials/count', authMiddleware, async (req, res) => {
   try {
     const actualCount = await Material.countDocuments({
@@ -142,11 +122,7 @@ router.get('/me/materials/count', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/users/me/reputation/recalculate
- * @desc    Recalcular reputação do utilizador autenticado
- * @access  Private
- */
+// Recalcular reputação do utilizador autenticado
 router.post('/me/reputation/recalculate', authMiddleware, async (req, res) => {
   try {
     const reputation = await recalculateUserReputation(req.user._id);
@@ -162,11 +138,7 @@ router.post('/me/reputation/recalculate', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/users/me/notification-preferences
- * @desc    Obter preferências de notificações do utilizador autenticado
- * @access  Private
- */
+// Obter preferências de notificações
 router.get('/me/notification-preferences', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('notificationPreferences role');
@@ -194,11 +166,7 @@ router.get('/me/notification-preferences', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/users/me/notification-preferences
- * @desc    Atualizar preferências de notificações do utilizador autenticado
- * @access  Private
- */
+// Atualizar preferências de notificações
 router.put('/me/notification-preferences', [
   authMiddleware,
   body('rating').optional().isBoolean(),

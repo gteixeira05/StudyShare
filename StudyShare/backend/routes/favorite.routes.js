@@ -5,11 +5,7 @@ import { authMiddleware } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-/**
- * @route   POST /api/favorites/:materialId
- * @desc    Adicionar material aos favoritos
- * @access  Private
- */
+// Adicionar material aos favoritos
 router.post('/:materialId', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.materialId);
@@ -43,11 +39,7 @@ router.post('/:materialId', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   DELETE /api/favorites/:materialId
- * @desc    Remover material dos favoritos
- * @access  Private
- */
+// Remover material dos favoritos
 router.delete('/:materialId', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -75,11 +67,7 @@ router.delete('/:materialId', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/favorites
- * @desc    Obter materiais favoritos do utilizador
- * @access  Private
- */
+// Obter materiais favoritos do utilizador
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
@@ -103,11 +91,7 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/favorites/check/:materialId
- * @desc    Verificar se material está nos favoritos
- * @access  Private
- */
+// Verificar se material está nos favoritos
 router.get('/check/:materialId', authMiddleware, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);

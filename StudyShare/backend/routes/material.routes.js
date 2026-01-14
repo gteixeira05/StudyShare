@@ -17,7 +17,7 @@ const __dirname = path.dirname(__filename);
 
 const router = express.Router();
 
-// Helper para validar ano dinamicamente
+// Validar ano dinamicamente
 const validateYear = async (year) => {
   try {
     const config = await SystemConfig.findOne({ key: 'availableYears' });
@@ -25,17 +25,15 @@ const validateYear = async (year) => {
       const validYears = config.values.filter(v => v.isActive).map(v => v.value);
       return validYears.includes(parseInt(year));
     }
-    // Fallback para validação padrão (1-5)
     const yearNum = parseInt(year);
     return yearNum >= 1 && yearNum <= 5;
   } catch (error) {
-    // Fallback para validação padrão
     const yearNum = parseInt(year);
     return yearNum >= 1 && yearNum <= 5;
   }
 };
 
-// Helper para validar tipo de material dinamicamente
+// Validar tipo de material dinamicamente
 const validateMaterialType = async (materialType) => {
   try {
     const config = await SystemConfig.findOne({ key: 'materialTypes' });
@@ -43,26 +41,23 @@ const validateMaterialType = async (materialType) => {
       const validTypes = config.values.filter(v => v.isActive).map(v => v.value);
       return validTypes.includes(materialType);
     }
-    // Fallback para tipos padrão
     const defaultTypes = ['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides'];
     return defaultTypes.includes(materialType);
   } catch (error) {
-    // Fallback para tipos padrão
     const defaultTypes = ['Apontamento', 'Resumo', 'Exercícios', 'Exame', 'Slides'];
     return defaultTypes.includes(materialType);
   }
 };
 
-// Configurar multer para upload de ficheiros em memória (para Cloudinary)
+// Configurar multer para upload de ficheiros
 const storage = multer.memoryStorage();
 
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 25 * 1024 * 1024 // 25MB
+    fileSize: 25 * 1024 * 1024
   },
   fileFilter: (req, file, cb) => {
-    // Aceitar apenas certos tipos de ficheiro
     const allowedTypes = /\.(pdf|doc|docx|ppt|pptx|jpg|jpeg|png)$/i;
     if (allowedTypes.test(file.originalname)) {
       cb(null, true);
@@ -72,13 +67,9 @@ const upload = multer({
   }
 });
 
-/**
- * @route   GET /api/materials
- * @desc    Listar materiais com filtros e pesquisa
- * @access  Public
- */
+// Listar materiais com filtros e pesquisa
 router.get('/', [
-  optionalAuth, // Autenticação opcional para personalização
+  optionalAuth,
   query('search').optional().trim(),
   query('discipline').optional().trim(),
   query('course').optional().trim(),
@@ -108,7 +99,6 @@ router.get('/', [
       sort = 'recent'
     } = req.query;
 
-    // Construir filtros
     const filters = {
       isActive: true,
       isApproved: true
@@ -119,10 +109,8 @@ router.get('/', [
     if (year) filters.year = parseInt(year);
     if (materialType) filters.materialType = materialType;
 
-    // Construir query
     let query = Material.find(filters).populate('author', 'name email avatar reputation');
 
-    // Pesquisa por texto
     if (search) {
       query = Material.find({
         ...filters,
@@ -130,7 +118,6 @@ router.get('/', [
       }).populate('author', 'name email avatar reputation');
     }
 
-    // Ordenação
     switch (sort) {
       case 'rating':
         query = query.sort({ 'rating.average': -1, createdAt: -1 });
@@ -147,13 +134,10 @@ router.get('/', [
         break;
     }
 
-    // Paginação
     const skip = (parseInt(page) - 1) * parseInt(limit);
     query = query.skip(skip).limit(parseInt(limit));
 
     const materials = await query;
-
-    // Total de documentos
     const total = await Material.countDocuments(filters);
 
     res.json({
@@ -173,11 +157,7 @@ router.get('/', [
   }
 });
 
-/**
- * @route   GET /api/materials/:id
- * @desc    Obter detalhes de um material
- * @access  Public
- */
+// Obter detalhes de um material
 router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id)
@@ -191,7 +171,6 @@ router.get('/:id', optionalAuth, async (req, res) => {
       });
     }
 
-    // Obter avaliação do utilizador atual (se autenticado)
     let userRating = null;
     if (req.user) {
       const userRatingObj = material.userRatings.find(
@@ -203,13 +182,10 @@ router.get('/:id', optionalAuth, async (req, res) => {
       userRating = userRatingObj ? userRatingObj.rating : null;
     }
 
-    // Incrementar visualizações com rastreamento por user ID ou IP
-    // Permitir uma visualização a cada 30 segundos do mesmo user/IP
     if (!global.viewedMaterials) {
       global.viewedMaterials = new Map();
     }
     
-    // Criar chave única baseada em user ID (se autenticado) ou IP
     let viewKey;
     if (req.user && req.user._id) {
       viewKey = `user_${req.user._id}_material_${req.params.id}`;
@@ -222,9 +198,8 @@ router.get('/:id', optionalAuth, async (req, res) => {
     }
     
     const now = Date.now();
-    const thirtySeconds = 30 * 1000; // 30 segundos
+    const thirtySeconds = 30 * 1000;
     
-    // Limpar entradas antigas (mais de 1 minuto)
     for (const [key, timestamp] of global.viewedMaterials.entries()) {
       if (now - timestamp > 60 * 1000) {
         global.viewedMaterials.delete(key);
@@ -236,10 +211,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
     
     let updatedMaterial;
     if (canView) {
-      // Marcar como visualizado agora
       global.viewedMaterials.set(viewKey, now);
-      
-      // Incrementar visualizações usando $inc para evitar race conditions
       updatedMaterial = await Material.findByIdAndUpdate(
         req.params.id, 
         { $inc: { views: 1 } },
@@ -249,14 +221,12 @@ router.get('/:id', optionalAuth, async (req, res) => {
         .populate('comments.user', 'name avatar')
         .populate('likes', 'name');
     } else {
-      // Ainda não passaram 30 segundos, apenas buscar sem incrementar
       updatedMaterial = await Material.findById(req.params.id)
         .populate('author', 'name email avatar reputation materialsUploaded')
         .populate('comments.user', 'name avatar')
         .populate('likes', 'name');
     }
 
-    // Converter para objeto e adicionar userRating
     const materialObj = updatedMaterial.toObject();
     materialObj.userRating = userRating;
 
@@ -269,11 +239,7 @@ router.get('/:id', optionalAuth, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/materials
- * @desc    Criar novo material com upload de ficheiro
- * @access  Private (apenas utilizadores autenticados)
- */
+// Criar novo material com upload de ficheiro
 router.post('/', [
   authMiddleware,
   upload.single('file'), // Middleware multer para processar o ficheiro
@@ -320,25 +286,21 @@ router.post('/', [
       });
     }
 
-    // Verificar se o ficheiro foi enviado
     if (!req.file) {
       return res.status(400).json({
         message: 'Ficheiro é obrigatório'
       });
     }
 
-    // Determinar resource_type baseado no tipo de ficheiro
     const imageExtensions = /\.(jpg|jpeg|png)$/i;
     const resourceType = imageExtensions.test(req.file.originalname) ? 'image' : 'raw';
 
-    // Upload para Cloudinary
     const cloudinaryResult = await uploadBufferToCloudinary(req.file.buffer, {
       folder: 'materials',
       resource_type: resourceType,
       public_id: `material-${Date.now()}-${Math.round(Math.random() * 1E9)}`
     });
 
-    // Construir dados do material
     const materialData = {
       title: req.body.title,
       description: req.body.description,
@@ -346,8 +308,8 @@ router.post('/', [
       course: req.body.course || undefined,
       year: parseInt(req.body.year),
       materialType: req.body.materialType,
-      fileUrl: cloudinaryResult.url, // URL do Cloudinary
-      fileName: req.file.originalname, // Nome original do ficheiro
+      fileUrl: cloudinaryResult.url,
+      fileName: req.file.originalname,
       fileSize: req.file.size,
       fileType: req.file.mimetype,
       tags: req.body.tags ? (Array.isArray(req.body.tags) ? req.body.tags : JSON.parse(req.body.tags)) : [],
@@ -357,13 +319,11 @@ router.post('/', [
     const material = new Material(materialData);
     await material.save();
 
-    // Incrementar contador de materiais do autor
     await User.findByIdAndUpdate(
       req.user._id,
       { $inc: { materialsUploaded: 1 } }
     );
 
-    // Popular author para resposta
     await material.populate('author', 'name email avatar reputation');
 
     res.status(201).json({
@@ -379,11 +339,7 @@ router.post('/', [
   }
 });
 
-/**
- * @route   PUT /api/materials/:id
- * @desc    Atualizar material (apenas autor ou admin)
- * @access  Private
- */
+// Atualizar material (apenas autor ou admin)
 router.put('/:id', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -394,14 +350,12 @@ router.put('/:id', authMiddleware, async (req, res) => {
       });
     }
 
-    // Verificar se é o autor ou administrador
     if (material.author.toString() !== req.user._id.toString() && req.user.role !== 'Administrador') {
       return res.status(403).json({
         message: 'Não tem permissão para editar este material'
       });
     }
 
-    // Validar ano se fornecido
     if (req.body.year !== undefined) {
       const isValidYear = await validateYear(req.body.year);
       if (!isValidYear) {
@@ -411,7 +365,6 @@ router.put('/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    // Validar tipo de material se fornecido
     if (req.body.materialType !== undefined) {
       const isValidType = await validateMaterialType(req.body.materialType);
       if (!isValidType) {
@@ -421,7 +374,6 @@ router.put('/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    // Campos permitidos para atualização
     const allowedUpdates = ['title', 'description', 'discipline', 'course', 'year', 'materialType', 'tags'];
     const updates = Object.keys(req.body).filter(key => allowedUpdates.includes(key));
     
@@ -444,11 +396,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   DELETE /api/materials/:id
- * @desc    Remover material permanentemente (apenas autor ou admin)
- * @access  Private
- */
+// Remover material permanentemente (apenas autor ou admin)
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -459,25 +407,20 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       });
     }
 
-    // Verificar se é o autor ou administrador
     if (material.author.toString() !== req.user._id.toString() && req.user.role !== 'Administrador') {
       return res.status(403).json({
         message: 'Não tem permissão para remover este material'
       });
     }
 
-    // Hard delete - eliminar permanentemente
-    // Remover ficheiro do Cloudinary se for URL do Cloudinary
     if (material.fileUrl && material.fileUrl.includes('cloudinary.com')) {
       try {
         await deleteFromCloudinary(material.fileUrl, 'auto');
         console.log('Ficheiro removido do Cloudinary:', material.fileUrl);
       } catch (fileError) {
         console.error('Erro ao remover ficheiro do Cloudinary:', fileError);
-        // Continuar mesmo se o ficheiro não for encontrado
       }
     } else if (material.fileUrl && !material.fileUrl.startsWith('http')) {
-      // Fallback: remover ficheiro local se ainda existir (migração)
       const filePath = path.join(__dirname, '..', material.fileUrl);
       if (fs.existsSync(filePath)) {
         try {
@@ -489,20 +432,16 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    // Eliminar material da base de dados
     await Material.findByIdAndDelete(req.params.id);
 
-    // Decrementar contador de materiais do autor (garantir que não fica negativo)
     await User.findByIdAndUpdate(
       material.author,
       { $inc: { materialsUploaded: -1 } },
       { new: true }
     );
     
-    // Garantir que o contador não fica negativo - recalcular se necessário
     const author = await User.findById(material.author);
     if (author.materialsUploaded < 0) {
-      // Recalcular contador baseado nos materiais reais
       const actualCount = await Material.countDocuments({
         author: material.author,
         isActive: true
@@ -522,11 +461,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/materials/:id/preview
- * @desc    Pré-visualizar o ficheiro do material (sem autenticação, apenas visualização)
- * @access  Public
- */
+// Pré-visualizar o ficheiro do material
 router.get('/:id/preview', async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -537,25 +472,18 @@ router.get('/:id/preview', async (req, res) => {
       });
     }
 
-    // Se fileUrl é uma URL externa (http/https), fazer proxy do ficheiro
     if (material.fileUrl.startsWith('http://') || material.fileUrl.startsWith('https://')) {
       try {
-        // Fazer fetch do ficheiro externo (Node.js 18+ tem fetch nativo)
         const fileResponse = await fetch(material.fileUrl);
         
         if (!fileResponse.ok) {
           throw new Error(`HTTP error! status: ${fileResponse.status}`);
         }
 
-        // Obter o tipo de conteúdo
         const contentType = fileResponse.headers.get('content-type') || 'application/pdf';
         const contentLength = fileResponse.headers.get('content-length');
-        
-        // Obter o buffer do ficheiro como arrayBuffer
         const arrayBuffer = await fileResponse.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
-        // Obter extensão do ficheiro para determinar content-type correto
         const ext = path.extname(material.fileName || material.fileUrl).toLowerCase();
         const contentTypes = {
           '.pdf': 'application/pdf',
@@ -568,14 +496,11 @@ router.get('/:id/preview', async (req, res) => {
         };
         const finalContentType = contentTypes[ext] || contentType;
         
-        // Headers para visualização inline (não download)
         res.setHeader('Content-Type', finalContentType);
         res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(material.fileName || 'file')}"`);
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Cache-Control', 'public, max-age=3600');
-        // Remover X-Frame-Options para permitir embedding em iframes de qualquer domínio
-        // O PDF viewer do browser funciona melhor sem este header
-        res.setHeader('Access-Control-Allow-Origin', '*'); // Permitir CORS para preview
+        res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         if (contentLength) {
           res.setHeader('Content-Length', contentLength);
@@ -583,19 +508,15 @@ router.get('/:id/preview', async (req, res) => {
           res.setHeader('Content-Length', buffer.length);
         }
 
-        // Enviar o ficheiro como binário
         res.end(buffer, 'binary');
-        return; // Importante: não continuar após enviar o ficheiro
+        return;
       } catch (fetchError) {
         console.error('Erro ao fazer proxy do preview do Cloudinary:', fetchError);
-        // Se falhar, tentar redirecionar como fallback
         return res.redirect(302, material.fileUrl);
       }
     }
 
-    // Para URLs locais, servir o ficheiro diretamente
     try {
-      // Construir caminho completo do ficheiro
       let filePath;
       if (material.fileUrl.startsWith('/')) {
         filePath = path.join(__dirname, '..', material.fileUrl);
@@ -605,7 +526,6 @@ router.get('/:id/preview', async (req, res) => {
           : path.join(__dirname, '..', material.fileUrl);
       }
       
-      // Verificar se o ficheiro existe
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({
           message: 'Ficheiro não encontrado no servidor',
@@ -613,12 +533,9 @@ router.get('/:id/preview', async (req, res) => {
         });
       }
       
-      // Obter informações do ficheiro
       const stats = fs.statSync(filePath);
       const fileSize = stats.size;
       const ext = path.extname(material.fileName || filePath).toLowerCase();
-      
-      // Determinar content-type baseado na extensão
       const contentTypes = {
         '.pdf': 'application/pdf',
         '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -636,20 +553,14 @@ router.get('/:id/preview', async (req, res) => {
       };
       const contentType = contentTypes[ext] || 'application/octet-stream';
       
-      // Headers para visualização (inline, não download)
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(material.fileName || 'file')}"`);
       res.setHeader('Content-Length', fileSize);
-      
-      // Headers para permitir CORS e embedding em iframes
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Cache-Control', 'public, max-age=3600');
-      // Remover X-Frame-Options para permitir embedding em iframes de qualquer domínio
-      // O PDF viewer do browser funciona melhor sem este header
-      res.setHeader('Access-Control-Allow-Origin', '*'); // Permitir CORS para preview
+      res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
       
-      // Ler e enviar o ficheiro
       const fileStream = fs.createReadStream(filePath);
       
       fileStream.on('error', (error) => {
@@ -683,11 +594,7 @@ router.get('/:id/preview', async (req, res) => {
   }
 });
 
-/**
- * @route   GET /api/materials/:id/download
- * @desc    Fazer download do ficheiro do material (proxy para URLs externas)
- * @access  Private
- */
+// Fazer download do ficheiro do material
 router.get('/:id/download', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -698,45 +605,34 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
       });
     }
 
-    // Incrementar contador de downloads
     material.downloads += 1;
     await material.save();
 
-    // Atualizar reputação do autor do material
     updateMaterialAuthorReputation(req.params.id).catch(err => {
       console.error('Erro ao atualizar reputação:', err);
     });
 
-    // Incrementar contador de downloads do utilizador
     await User.findByIdAndUpdate(
       req.user._id,
       { $inc: { materialsDownloaded: 1 } }
     );
 
-    // Se fileUrl é uma URL externa (http/https), fazer proxy do download
     if (material.fileUrl.startsWith('http://') || material.fileUrl.startsWith('https://')) {
       try {
-        // Fazer fetch do ficheiro externo (Node.js 18+ tem fetch nativo)
         const fileResponse = await fetch(material.fileUrl);
         
         if (!fileResponse.ok) {
           throw new Error(`HTTP error! status: ${fileResponse.status}`);
         }
 
-        // Obter o tipo de conteúdo
         const contentType = fileResponse.headers.get('content-type') || 'application/octet-stream';
         const contentLength = fileResponse.headers.get('content-length');
-        
-        // Obter o buffer do ficheiro como arrayBuffer
         const arrayBuffer = await fileResponse.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
-        // Nome do ficheiro com encoding correto (RFC 5987)
         const fileName = material.fileName || 'material';
         const encodedFileName = encodeURIComponent(fileName);
-        const asciiFileName = fileName.replace(/[^\x00-\x7F]/g, ''); // Fallback ASCII
+        const asciiFileName = fileName.replace(/[^\x00-\x7F]/g, '');
         
-        // Definir headers para forçar download
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodedFileName}`);
         res.setHeader('Content-Transfer-Encoding', 'binary');
@@ -746,12 +642,10 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
           res.setHeader('Content-Length', buffer.length);
         }
 
-        // Enviar o ficheiro como binário
         res.end(buffer, 'binary');
-        return; // Importante: não continuar após enviar o ficheiro
+        return;
       } catch (fetchError) {
         console.error('Erro ao fazer proxy do download:', fetchError);
-        // Se falhar, retornar URL para o frontend tentar
         res.status(200).json({
           message: 'Download registado',
           fileUrl: material.fileUrl,
@@ -762,21 +656,16 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
         return;
       }
     } else {
-      // Para URLs locais, servir o ficheiro diretamente
       try {
-        // Construir caminho completo do ficheiro
         let filePath;
         if (material.fileUrl.startsWith('/')) {
-          // Caminho relativo a partir da raiz do projeto (ex: /uploads/file.pdf)
           filePath = path.join(__dirname, '..', material.fileUrl);
         } else {
-          // Caminho absoluto ou relativo
           filePath = path.isAbsolute(material.fileUrl) 
             ? material.fileUrl 
             : path.join(__dirname, '..', material.fileUrl);
         }
         
-        // Verificar se o ficheiro existe
         if (!fs.existsSync(filePath)) {
           res.status(404).json({
             message: 'Ficheiro não encontrado no servidor',
@@ -787,12 +676,9 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
           return;
         }
         
-        // Obter informações do ficheiro
         const stats = fs.statSync(filePath);
         const fileSize = stats.size;
         const ext = path.extname(material.fileName || filePath).toLowerCase();
-        
-        // Determinar content-type baseado na extensão
         const contentTypes = {
           '.pdf': 'application/pdf',
           '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -803,19 +689,15 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
           '.txt': 'text/plain'
         };
         const contentType = contentTypes[ext] || 'application/octet-stream';
-        
-        // Nome do ficheiro com encoding correto
         const fileName = material.fileName || path.basename(filePath);
         const encodedFileName = encodeURIComponent(fileName);
         const asciiFileName = fileName.replace(/[^\x00-\x7F]/g, '');
         
-        // Definir headers para forçar download
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `attachment; filename="${asciiFileName}"; filename*=UTF-8''${encodedFileName}`);
         res.setHeader('Content-Transfer-Encoding', 'binary');
         res.setHeader('Content-Length', fileSize);
         
-        // Ler e enviar o ficheiro
         const fileStream = fs.createReadStream(filePath);
         
         fileStream.on('error', (error) => {
@@ -829,11 +711,10 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
         });
         
         fileStream.pipe(res);
-        return; // Importante: não continuar após enviar o ficheiro
+        return;
       } catch (error) {
         console.error('Erro ao servir ficheiro local:', error);
         console.error('Caminho tentado:', material.fileUrl);
-        // Se o ficheiro não existir, retornar erro 404
         if (error.message.includes('não encontrado') || error.code === 'ENOENT') {
           res.status(404).json({
             message: 'Ficheiro não encontrado no servidor',
@@ -842,7 +723,6 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
           });
           return;
         }
-        // Se falhar por outro motivo, retornar JSON com URL completa do backend
         const backendUrl = process.env.BACKEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
         res.status(200).json({
           message: 'Download registado',
@@ -862,11 +742,7 @@ router.get('/:id/download', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/materials/:id/comments
- * @desc    Adicionar comentário a um material
- * @access  Private
- */
+// Adicionar comentário a um material
 router.post('/:id/comments', [
   authMiddleware,
   body('text')
@@ -899,20 +775,14 @@ router.post('/:id/comments', [
     material.comments.push(newComment);
     await material.save();
 
-    // Atualizar reputação do autor do material
     updateMaterialAuthorReputation(req.params.id).catch(err => {
       console.error('Erro ao atualizar reputação:', err);
     });
 
-    // Popular o comentário com dados do utilizador
     await material.populate('comments.user', 'name avatar');
-
     const addedComment = material.comments[material.comments.length - 1];
 
-    // Emitir evento Socket.IO para atualização em tempo real
     emitNewComment(req.params.id, addedComment);
-
-    // Enviar notificações sobre o novo comentário
     notifyNewComment(req.params.id, req.user._id, req.body.text).catch(err => {
       console.error('Erro ao enviar notificações de comentário:', err);
     });
@@ -929,11 +799,7 @@ router.post('/:id/comments', [
   }
 });
 
-/**
- * @route   POST /api/materials/:id/comments/:commentId/like
- * @desc    Dar like ou remover like de um comentário
- * @access  Private
- */
+// Dar like ou remover like de um comentário
 router.post('/:id/comments/:commentId/like', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -954,12 +820,10 @@ router.post('/:id/comments/:commentId/like', authMiddleware, async (req, res) =>
     const userId = req.user._id;
     const userIdStr = userId.toString();
 
-    // Verificar se já deu like
     const likeIndex = comment.likes.findIndex(
       likeId => likeId.toString() === userIdStr
     );
 
-    // Remover dislike se existir
     const dislikeIndex = comment.dislikes.findIndex(
       dislikeId => dislikeId.toString() === userIdStr
     );
@@ -968,16 +832,12 @@ router.post('/:id/comments/:commentId/like', authMiddleware, async (req, res) =>
     }
 
     if (likeIndex !== -1) {
-      // Remover like
       comment.likes.splice(likeIndex, 1);
     } else {
-      // Adicionar like
       comment.likes.push(userId);
     }
 
     await material.save();
-
-    // Popular o comentário atualizado
     await material.populate('comments.user', 'name avatar');
     const updatedComment = material.comments.id(req.params.commentId);
 
@@ -993,11 +853,7 @@ router.post('/:id/comments/:commentId/like', authMiddleware, async (req, res) =>
   }
 });
 
-/**
- * @route   POST /api/materials/:id/comments/:commentId/dislike
- * @desc    Dar dislike ou remover dislike de um comentário
- * @access  Private
- */
+// Dar dislike ou remover dislike de um comentário
 router.post('/:id/comments/:commentId/dislike', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id);
@@ -1018,12 +874,10 @@ router.post('/:id/comments/:commentId/dislike', authMiddleware, async (req, res)
     const userId = req.user._id;
     const userIdStr = userId.toString();
 
-    // Verificar se já deu dislike
     const dislikeIndex = comment.dislikes.findIndex(
       dislikeId => dislikeId.toString() === userIdStr
     );
 
-    // Remover like se existir
     const likeIndex = comment.likes.findIndex(
       likeId => likeId.toString() === userIdStr
     );
@@ -1032,16 +886,12 @@ router.post('/:id/comments/:commentId/dislike', authMiddleware, async (req, res)
     }
 
     if (dislikeIndex !== -1) {
-      // Remover dislike
       comment.dislikes.splice(dislikeIndex, 1);
     } else {
-      // Adicionar dislike
       comment.dislikes.push(userId);
     }
 
     await material.save();
-
-    // Popular o comentário atualizado
     await material.populate('comments.user', 'name avatar');
     const updatedComment = material.comments.id(req.params.commentId);
 
@@ -1057,11 +907,7 @@ router.post('/:id/comments/:commentId/dislike', authMiddleware, async (req, res)
   }
 });
 
-/**
- * @route   POST /api/materials/:id/comments/:commentId/report
- * @desc    Reportar um comentário
- * @access  Private
- */
+// Reportar um comentário
 router.post('/:id/comments/:commentId/report', [
   authMiddleware,
   body('reason')
@@ -1096,7 +942,6 @@ router.post('/:id/comments/:commentId/report', [
     const userId = req.user._id;
     const userIdStr = userId.toString();
 
-    // Verificar se já reportou este comentário
     const existingReport = comment.reports.find(
       report => report.user.toString() === userIdStr
     );
@@ -1107,15 +952,12 @@ router.post('/:id/comments/:commentId/report', [
       });
     }
 
-    // Adicionar report
     comment.reports.push({
       user: userId,
       reason: req.body.reason.trim()
     });
 
     await material.save();
-
-    // Notificar todos os administradores
     notifyAdminsNewReport(req.params.id, 'comment', userId, req.body.reason.trim()).catch(err => {
       console.error('Erro ao notificar administradores sobre report:', err);
     });
@@ -1131,11 +973,7 @@ router.post('/:id/comments/:commentId/report', [
   }
 });
 
-/**
- * @route   POST /api/materials/:id/rating
- * @desc    Avaliar um material (1-5 estrelas) - apenas uma vez por utilizador
- * @access  Private
- */
+// Avaliar um material (1-5 estrelas)
 router.post('/:id/rating', [
   authMiddleware,
   body('rating')
@@ -1161,7 +999,6 @@ router.post('/:id/rating', [
     const ratingValue = parseInt(req.body.rating);
     const userId = req.user._id.toString();
 
-    // Verificar se o utilizador já avaliou
     const existingRatingIndex = material.userRatings.findIndex(
       ur => {
         const urUserId = ur.user?.toString ? ur.user.toString() : (ur.user?._id ? ur.user._id.toString() : ur.user);
@@ -1169,21 +1006,16 @@ router.post('/:id/rating', [
       }
     );
 
-    let oldRating = null;
     if (existingRatingIndex !== -1) {
-      // Utilizador já avaliou - atualizar avaliação existente
-      oldRating = material.userRatings[existingRatingIndex].rating;
       material.userRatings[existingRatingIndex].rating = ratingValue;
       material.userRatings[existingRatingIndex].createdAt = new Date();
     } else {
-      // Nova avaliação
       material.userRatings.push({
         user: userId,
         rating: ratingValue
       });
     }
 
-    // Recalcular breakdown baseado em todas as avaliações
     const breakdown = { one: 0, two: 0, three: 0, four: 0, five: 0 };
     material.userRatings.forEach(ur => {
       const key = ['one', 'two', 'three', 'four', 'five'][ur.rating - 1];
@@ -1191,28 +1023,23 @@ router.post('/:id/rating', [
     });
     material.rating.breakdown = breakdown;
 
-    // Recalcular média
     const totalRatings = material.userRatings.length;
     const sumRatings = material.userRatings.reduce((sum, ur) => sum + ur.rating, 0);
-
     material.rating.average = totalRatings > 0 ? sumRatings / totalRatings : 0;
     material.rating.count = totalRatings;
 
     await material.save();
 
-    // Atualizar reputação do autor do material
     updateMaterialAuthorReputation(req.params.id).catch(err => {
       console.error('Erro ao atualizar reputação:', err);
     });
 
-    // Emitir evento Socket.IO para atualização em tempo real
     emitRatingUpdate(req.params.id, {
       average: material.rating.average,
       count: material.rating.count,
       breakdown: material.rating.breakdown
     });
 
-    // Enviar notificação sobre a nova avaliação (apenas se for uma nova avaliação, não atualização)
     if (existingRatingIndex === -1) {
       notifyNewRating(req.params.id, req.user._id, ratingValue).catch(err => {
         console.error('Erro ao enviar notificação de avaliação:', err);
@@ -1238,11 +1065,7 @@ router.post('/:id/rating', [
   }
 });
 
-/**
- * @route   GET /api/materials/:id/rating/user
- * @desc    Obter avaliação do utilizador atual para este material
- * @access  Private
- */
+// Obter avaliação do utilizador atual para este material
 router.get('/:id/rating/user', authMiddleware, async (req, res) => {
   try {
     const material = await Material.findById(req.params.id).select('userRatings');
@@ -1268,11 +1091,7 @@ router.get('/:id/rating/user', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   POST /api/materials/:id/report
- * @desc    Reportar um material
- * @access  Private
- */
+// Reportar um material
 router.post('/:id/report', [
   authMiddleware,
   body('reason')
@@ -1297,7 +1116,6 @@ router.post('/:id/report', [
       });
     }
 
-    // Verificar se o utilizador já reportou este material
     const existingReport = material.reports.find(
       r => r.user.toString() === req.user._id.toString()
     );
@@ -1308,15 +1126,12 @@ router.post('/:id/report', [
       });
     }
 
-    // Adicionar report
     material.reports.push({
       user: req.user._id,
       reason: req.body.reason
     });
 
     await material.save();
-
-    // Notificar todos os administradores
     notifyAdminsNewReport(req.params.id, 'material', req.user._id, req.body.reason).catch(err => {
       console.error('Erro ao notificar administradores sobre report:', err);
     });

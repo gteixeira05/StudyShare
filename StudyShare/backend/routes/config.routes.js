@@ -3,11 +3,7 @@ import SystemConfig from '../models/SystemConfig.model.js';
 
 const router = express.Router();
 
-/**
- * @route   GET /api/config/:key
- * @desc    Obter configuração do sistema (público - apenas valores ativos)
- * @access  Public
- */
+// Obter configuração do sistema
 router.get('/:key', async (req, res) => {
   try {
     const { key } = req.params;

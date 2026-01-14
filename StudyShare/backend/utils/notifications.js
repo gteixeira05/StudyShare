@@ -8,37 +8,29 @@ export function setIO(ioInstance) {
   io = ioInstance;
 }
 
-/**
- * Emitir evento de novo comentário em tempo real
- */
+// Emitir evento de novo comentário em tempo real
 export function emitNewComment(materialId, comment) {
   if (io) {
     io.to(`material_${materialId}`).emit('new_comment', comment);
   }
 }
 
-/**
- * Emitir evento de atualização de avaliação em tempo real
- */
+// Emitir evento de atualização de avaliação em tempo real
 export function emitRatingUpdate(materialId, ratingData) {
   if (io) {
     io.to(`material_${materialId}`).emit('rating_updated', ratingData);
   }
 }
 
-/**
- * Enviar notificação e emitir via Socket.IO
- */
+// Enviar notificação e emitir via Socket.IO
 export async function sendNotification(notificationData) {
   try {
     const notification = new Notification(notificationData);
     await notification.save();
 
-    // Popular dados para enviar via Socket.IO
     await notification.populate('material', 'title');
     await notification.populate('fromUser', 'name avatar');
 
-    // Emitir notificação em tempo real via Socket.IO
     if (io) {
       io.to(`user_${notification.user}`).emit('new_notification', notification);
     }
@@ -50,33 +42,26 @@ export async function sendNotification(notificationData) {
   }
 }
 
-/**
- * Notificar sobre novo comentário
- * Notifica: dono do material + users que têm o material nos favoritos
- */
+// Notificar sobre novo comentário
 export async function notifyNewComment(materialId, commentAuthorId, commentText) {
   try {
     const material = await Material.findById(materialId).populate('author');
     if (!material) return;
 
-    // Encontrar todos os users que têm este material nos favoritos
     const usersWithFavorite = await User.find({
       favorites: materialId
     }).select('_id notificationPreferences');
 
-    // Obter nome do autor do comentário
     const commentAuthor = await User.findById(commentAuthorId).select('name');
     const authorName = commentAuthor?.name || 'Alguém';
 
-    // Criar notificações para cada user
     const notifications = [];
     
-    // Notificar dono do material (se tiver preferência ativa)
     if (material.author._id.toString() !== commentAuthorId.toString()) {
       const materialOwner = await User.findById(material.author._id).select('notificationPreferences');
       const ownerPrefs = materialOwner?.notificationPreferences || {};
       
-      if (ownerPrefs.commentOnMyMaterial !== false) { // Default true se não existir
+      if (ownerPrefs.commentOnMyMaterial !== false) {
         const notification = await sendNotification({
           user: material.author._id,
           type: 'comment',
@@ -91,13 +76,12 @@ export async function notifyNewComment(materialId, commentAuthorId, commentText)
       }
     }
 
-    // Notificar users com favorito (se tiverem preferência ativa)
     for (const user of usersWithFavorite) {
       if (user._id.toString() === commentAuthorId.toString()) continue;
-      if (user._id.toString() === material.author._id.toString()) continue; // Já foi notificado acima
+      if (user._id.toString() === material.author._id.toString()) continue;
       
       const userPrefs = user.notificationPreferences || {};
-      if (userPrefs.commentOnFavorite !== false) { // Default true se não existir
+      if (userPrefs.commentOnFavorite !== false) {
         const notification = await sendNotification({
           user: user._id,
           type: 'comment',
@@ -119,34 +103,26 @@ export async function notifyNewComment(materialId, commentAuthorId, commentText)
   }
 }
 
-/**
- * Notificar sobre nova avaliação
- * Notifica: dono do material
- */
+// Notificar sobre nova avaliação
 export async function notifyNewRating(materialId, ratingAuthorId, rating) {
   try {
     const material = await Material.findById(materialId).populate('author');
     if (!material) return;
 
-    // Não notificar se o autor da avaliação for o dono do material
     if (material.author._id.toString() === ratingAuthorId.toString()) {
       return null;
     }
 
-    // Verificar preferências de notificação do dono do material
     const materialOwner = await User.findById(material.author._id).select('notificationPreferences');
     const ownerPrefs = materialOwner?.notificationPreferences || {};
     
-    // Se a preferência estiver desativada, não enviar notificação
     if (ownerPrefs.rating === false) {
       return null;
     }
 
-    // Obter nome do autor da avaliação
     const ratingAuthor = await User.findById(ratingAuthorId).select('name');
     const authorName = ratingAuthor?.name || 'Alguém';
 
-    // Criar notificação para o dono
     const notification = await sendNotification({
       user: material.author._id,
       type: 'rating',
@@ -165,25 +141,19 @@ export async function notifyNewRating(materialId, ratingAuthorId, rating) {
   }
 }
 
-/**
- * Notificar todos os administradores sobre novo report
- * Notifica: todos os administradores (que tenham preferência ativa)
- */
+// Notificar todos os administradores sobre novo report
 export async function notifyAdminsNewReport(materialId, reportType, reportedBy, reason) {
   try {
     const material = await Material.findById(materialId).select('title');
     if (!material) return;
 
-    // Encontrar todos os administradores com suas preferências
     const admins = await User.find({ role: 'Administrador' }).select('_id notificationPreferences');
     
     if (admins.length === 0) return [];
 
-    // Obter nome de quem reportou
     const reporter = await User.findById(reportedBy).select('name');
     const reporterName = reporter?.name || 'Alguém';
 
-    // Criar mensagem baseada no tipo de report
     let message = '';
     const materialTitle = material.title || 'Material';
     if (reportType === 'material') {
@@ -192,11 +162,9 @@ export async function notifyAdminsNewReport(materialId, reportType, reportedBy, 
       message = `${reporterName} reportou um comentário no material "${materialTitle}"`;
     }
 
-    // Criar notificações apenas para administradores com preferência ativa
     const notifications = [];
     for (const admin of admins) {
       const adminPrefs = admin.notificationPreferences || {};
-      // Se a preferência estiver desativada, não enviar notificação
       if (adminPrefs.report === false) {
         continue;
       }
@@ -209,7 +177,7 @@ export async function notifyAdminsNewReport(materialId, reportType, reportedBy, 
         message: message,
         metadata: {
           reportType: reportType,
-          reason: reason.substring(0, 200) // Primeiros 200 caracteres
+          reason: reason.substring(0, 200)
         }
       });
       if (notification) notifications.push(notification);

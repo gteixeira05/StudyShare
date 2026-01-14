@@ -4,11 +4,7 @@ import { authMiddleware } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-/**
- * @route   GET /api/notifications
- * @desc    Obter notificações do utilizador autenticado
- * @access  Private
- */
+// Obter notificações do utilizador autenticado
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const { limit = 50, unreadOnly = false } = req.query;
@@ -41,11 +37,7 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/notifications/:id/read
- * @desc    Marcar notificação como lida
- * @access  Private
- */
+// Marcar notificação como lida
 router.put('/:id/read', authMiddleware, async (req, res) => {
   try {
     const notification = await Notification.findOne({
@@ -74,11 +66,7 @@ router.put('/:id/read', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   PUT /api/notifications/read-all
- * @desc    Marcar todas as notificações como lidas
- * @access  Private
- */
+// Marcar todas as notificações como lidas
 router.put('/read-all', authMiddleware, async (req, res) => {
   try {
     await Notification.updateMany(
@@ -97,11 +85,7 @@ router.put('/read-all', authMiddleware, async (req, res) => {
   }
 });
 
-/**
- * @route   DELETE /api/notifications/:id
- * @desc    Eliminar notificação
- * @access  Private
- */
+// Eliminar notificação
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const notification = await Notification.findOneAndDelete({

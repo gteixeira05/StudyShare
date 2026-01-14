@@ -16,20 +16,19 @@ import userRoutes from './routes/user.routes.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load environment variables
-// Carregar .env da raiz do projeto (um nível acima de backend/)
+// Carregar variáveis de ambiente
 dotenv.config({ path: path.join(path.dirname(__dirname), '.env') });
 
 const app = express();
 const httpServer = createServer(app);
-// Configurar CORS para Socket.IO
+
+// Configurar origens permitidas para Socket.IO
 const getSocketIOOrigins = () => {
   if (process.env.NODE_ENV === 'production') {
-    // Em produção, usar CLIENT_URL ou múltiplas URLs separadas por vírgula
     const clientUrls = process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map(url => url.trim()) : [];
     return clientUrls.length > 0 ? clientUrls : true;
   }
-  return true; // Em desenvolvimento, permitir todas as origens
+  return true;
 };
 
 const io = new Server(httpServer, {
@@ -40,22 +39,19 @@ const io = new Server(httpServer, {
   }
 });
 
-// Middleware
 // Configurar origens permitidas para CORS
 const getAllowedOrigins = () => {
   if (process.env.NODE_ENV === 'production') {
-    // Em produção, usar CLIENT_URL (pode ser múltiplas URLs separadas por vírgula)
     const clientUrls = process.env.CLIENT_URL 
-      ? process.env.CLIENT_URL.split(',').map(url => url.trim().replace(/\/$/, '')) // Remove trailing slash
+      ? process.env.CLIENT_URL.split(',').map(url => url.trim().replace(/\/$/, ''))
       : [];
     return clientUrls;
   }
-  // Em desenvolvimento, permitir localhost e IPs locais
   return [
     'http://localhost:5173',
-    /^http:\/\/192\.168\.\d+\.\d+:5173$/, // Permitir IPs locais
-    /^http:\/\/10\.\d+\.\d+\.\d+:5173$/,  // Permitir IPs privados
-    /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:5173$/ // Permitir IPs privados
+    /^http:\/\/192\.168\.\d+\.\d+:5173$/,
+    /^http:\/\/10\.\d+\.\d+\.\d+:5173$/,
+    /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:5173$/
   ];
 };
 
@@ -63,18 +59,14 @@ const allowedOrigins = getAllowedOrigins();
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Permitir requisições sem origin (mobile apps, Postman, etc)
     if (!origin) return callback(null, true);
     
-    // Em desenvolvimento, permitir todas as origens locais
     if (process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
     
-    // Em produção, verificar se a origem está permitida
     const isAllowed = allowedOrigins.some(allowedOrigin => {
       if (typeof allowedOrigin === 'string') {
-        // Comparar sem trailing slash e protocolo
         const originClean = origin.replace(/\/$/, '').toLowerCase();
         const allowedClean = allowedOrigin.replace(/\/$/, '').toLowerCase();
         return originClean === allowedClean;
@@ -87,9 +79,7 @@ app.use(cors({
     if (isAllowed) {
       callback(null, true);
     } else {
-      // Log para debug em produção (pode remover depois)
       console.warn('CORS bloqueado para origem:', origin);
-      console.warn('Origens permitidas:', allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -100,14 +90,13 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Servir ficheiros estáticos da pasta uploads
+// Servir ficheiros estáticos
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsDir));
 
-// Criar pasta de avatares se não existir
 const avatarsDir = path.join(__dirname, 'uploads', 'avatars');
 if (!fs.existsSync(avatarsDir)) {
   fs.mkdirSync(avatarsDir, { recursive: true });
@@ -125,23 +114,20 @@ mongoose.connect(MONGODB_URI)
   process.exit(1);
 });
 
-// Socket.IO connection handling
+// Gestão de conexões Socket.IO
 io.on('connection', (socket) => {
   console.log('🔌 Utilizador conectado:', socket.id);
 
-  // Quando um utilizador faz login, junta-se à sua sala personalizada
   socket.on('join_user_room', (userId) => {
     socket.join(`user_${userId}`);
     console.log(`👤 Utilizador ${userId} juntou-se à sua sala de notificações`);
   });
 
-  // Quando um utilizador entra numa página de material, junta-se à sala do material
   socket.on('join_material_room', (materialId) => {
     socket.join(`material_${materialId}`);
     console.log(`📄 Socket ${socket.id} juntou-se à sala do material ${materialId}`);
   });
 
-  // Quando um utilizador sai de uma página de material
   socket.on('leave_material_room', (materialId) => {
     socket.leave(`material_${materialId}`);
     console.log(`📄 Socket ${socket.id} saiu da sala do material ${materialId}`);
@@ -152,14 +138,12 @@ io.on('connection', (socket) => {
   });
 });
 
-// Import additional routes
 import notificationRoutes from './routes/notification.routes.js';
 import favoriteRoutes from './routes/favorite.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import configRoutes from './routes/config.routes.js';
 import { setIO } from './utils/notifications.js';
 
-// Configurar io para notificações
 setIO(io);
 
 // Routes
