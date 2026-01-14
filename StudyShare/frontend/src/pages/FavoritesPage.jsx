@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import api from '../services/api'
 import Sidebar from '../components/Sidebar'
 import MaterialCard from '../components/MaterialCard'
-import { FiHeart, FiLoader } from 'react-icons/fi'
+import { FiHeart, FiLoader, FiArrowLeft } from 'react-icons/fi'
 
 const FavoritesPage = () => {
   const { user } = useAuth()
   const { error: showError } = useToast()
+  const navigate = useNavigate()
   const [favorites, setFavorites] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -48,6 +49,13 @@ const FavoritesPage = () => {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
+            <button
+              onClick={() => navigate(-1)}
+              className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors duration-200 group"
+            >
+              <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform duration-200" />
+              <span className="font-medium">Voltar</span>
+            </button>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                 <FiHeart className="w-6 h-6 text-white" />
